@@ -32,8 +32,10 @@ class _WongojiEditorState extends State<WongojiEditor> {
   final ScrollController _scrollController = ScrollController();
   
   List<List<String>> _pages = [List.generate(200, (index) => "")];
+  List<DateTime> _pageDates = [DateTime.now()]; // NEW: Tracks the exact birth date of each page!
+  
   bool _isZoomedOut = false;
-  int _themeMode = 0; // 0: Normal, 1: Grey, 2: Dark
+  int _themeMode = 0; 
 
   int _charsWithSpace = 0;
   int _charsWithoutSpace = 0;
@@ -55,7 +57,6 @@ class _WongojiEditorState extends State<WongojiEditor> {
   final double _marginHorizontal = 40.0;
   final double _pageSpacing = 30.0;
 
-  // --- THEME COLOR GETTERS ---
   Color get appBgColor => _themeMode == 0 ? const Color(0xFFE5E5E5) : (_themeMode == 1 ? const Color(0xFF5C5C5C) : const Color(0xFF121212));
   Color get paperColor => _themeMode == 0 ? Colors.white : (_themeMode == 1 ? const Color(0xFFBDBDBD) : Colors.black);
   Color get lineColor => _themeMode == 0 ? Colors.redAccent : (_themeMode == 1 ? const Color(0xFF858585) : const Color(0xFF424242));
@@ -196,6 +197,16 @@ class _WongojiEditorState extends State<WongojiEditor> {
     cursorMap.add({"page": newPages.length, "cell": cellIndex});
     newPages.add(currentPage);
 
+    // NEW: Manage page dates! 
+    // If a new page was born, give it today's date.
+    while (_pageDates.length < newPages.length) {
+      _pageDates.add(DateTime.now());
+    }
+    // If text was deleted and a page was destroyed, remove its date.
+    if (_pageDates.length > newPages.length) {
+      _pageDates = _pageDates.sublist(0, newPages.length);
+    }
+
     _isTyping = true;
     _hideDotTimer?.cancel();
     _hideDotTimer = Timer(const Duration(milliseconds: 300), () {
@@ -234,6 +245,10 @@ class _WongojiEditorState extends State<WongojiEditor> {
   Widget _buildPage(int pageIndex, double scale) {
     double paperWidth = ((_cellDim * 20) + (_marginHorizontal * 2)) * scale;
     double paperHeight = ((_cellDim * 10) + (_rowGap * 9) + _marginTop + _marginBottom) * scale;
+    
+    // Formatting the date nicely (e.g., 2026. 08. 26.)
+    DateTime pageDate = _pageDates[pageIndex];
+    String dateStr = "${pageDate.year}. ${pageDate.month.toString().padLeft(2, '0')}. ${pageDate.day.toString().padLeft(2, '0')}.";
 
     return Container(
       width: paperWidth,
@@ -251,17 +266,31 @@ class _WongojiEditorState extends State<WongojiEditor> {
       ),
       child: Stack(
         children: [
+          // NEW: Date Stamp and Page Number
           Positioned(
-            top: (_marginTop - 25) * scale,
+            top: (_marginTop - 40) * scale,
             right: _marginHorizontal * scale,
-            child: Text(
-              "No. ${pageIndex + 1}",
-              style: GoogleFonts.nanumMyeongjo(
-                color: lineColor,
-                fontSize: 16 * scale,
-                fontStyle: FontStyle.italic,
-                fontWeight: FontWeight.bold,
-              ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Text(
+                  "No. ${pageIndex + 1}",
+                  style: GoogleFonts.nanumMyeongjo(
+                    color: lineColor,
+                    fontSize: 16 * scale,
+                    fontStyle: FontStyle.italic,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                Text(
+                  dateStr,
+                  style: GoogleFonts.nanumMyeongjo(
+                    color: lineColor.withOpacity(0.6),
+                    fontSize: 11 * scale,
+                    fontStyle: FontStyle.italic,
+                  ),
+                ),
+              ],
             ),
           ),
           
@@ -366,7 +395,6 @@ class _WongojiEditorState extends State<WongojiEditor> {
         backgroundColor: appBarBgColor,
         elevation: 1,
         actions: [
-          // Theme Toggle Button
           IconButton(
             icon: Icon(
               _themeMode == 0 ? Icons.light_mode : (_themeMode == 1 ? Icons.monochrome_photos : Icons.dark_mode)
