@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:google_fonts/google_fonts.dart'; // The new typography engine!
+import 'package:google_fonts/google_fonts.dart'; 
 import 'dart:async';
 import 'dart:math';
 
@@ -33,11 +33,11 @@ class _WongojiEditorState extends State<WongojiEditor> {
   
   List<List<String>> _pages = [List.generate(200, (index) => "")];
   bool _isZoomedOut = false;
+  int _themeMode = 0; // 0: Normal, 1: Grey, 2: Dark
 
   int _charsWithSpace = 0;
   int _charsWithoutSpace = 0;
 
-  // Cursor & Dot Tracking
   int _activePageIndex = 0;
   int _activeCellIndex = 0;
   double _dotX = 0.5;
@@ -55,12 +55,21 @@ class _WongojiEditorState extends State<WongojiEditor> {
   final double _marginHorizontal = 40.0;
   final double _pageSpacing = 30.0;
 
+  // --- THEME COLOR GETTERS ---
+  Color get appBgColor => _themeMode == 0 ? const Color(0xFFE5E5E5) : (_themeMode == 1 ? const Color(0xFF5C5C5C) : const Color(0xFF121212));
+  Color get paperColor => _themeMode == 0 ? Colors.white : (_themeMode == 1 ? const Color(0xFFBDBDBD) : Colors.black);
+  Color get lineColor => _themeMode == 0 ? Colors.redAccent : (_themeMode == 1 ? const Color(0xFF858585) : const Color(0xFF424242));
+  Color get textColor => _themeMode == 2 ? const Color(0xFFE0E0E0) : const Color(0xFF212121);
+  Color get dotColor => _themeMode == 2 ? const Color(0xFFE0E0E0) : Colors.black;
+  Color get appBarBgColor => _themeMode == 0 ? Colors.white : (_themeMode == 1 ? const Color(0xFF9E9E9E) : const Color(0xFF1E1E1E));
+  Color get appBarTextColor => _themeMode == 0 ? Colors.black : (_themeMode == 1 ? Colors.black87 : Colors.white);
+  Color get inputBgColor => _themeMode == 0 ? Colors.white : (_themeMode == 1 ? const Color(0xFFE0E0E0) : const Color(0xFF2C2C2C));
+
   @override
   void initState() {
     super.initState();
     _controller.addListener(_updateGrid);
     
-    // Your Custom 500ms / 500ms Blink Timing
     _cursorTimer = Timer.periodic(const Duration(milliseconds: 1000), (timer) {
       if (!_isZoomedOut && !_isTyping) {
         setState(() {
@@ -102,12 +111,18 @@ class _WongojiEditorState extends State<WongojiEditor> {
   void _copyToClipboard() {
     Clipboard.setData(ClipboardData(text: _controller.text));
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Text copied to clipboard!'),
-        duration: Duration(seconds: 2),
-        backgroundColor: Colors.black87,
+      SnackBar(
+        content: const Text('Text copied to clipboard!'),
+        duration: const Duration(seconds: 2),
+        backgroundColor: _themeMode == 2 ? Colors.white24 : Colors.black87,
       ),
     );
+  }
+
+  void _cycleTheme() {
+    setState(() {
+      _themeMode = (_themeMode + 1) % 3;
+    });
   }
 
   void _updateGrid() {
@@ -225,10 +240,10 @@ class _WongojiEditorState extends State<WongojiEditor> {
       height: paperHeight,
       margin: EdgeInsets.only(bottom: _pageSpacing),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: paperColor,
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.15),
+            color: Colors.black.withOpacity(_themeMode == 2 ? 0.5 : 0.15),
             blurRadius: 10 * scale,
             offset: Offset(0, 5 * scale),
           )
@@ -242,7 +257,7 @@ class _WongojiEditorState extends State<WongojiEditor> {
             child: Text(
               "No. ${pageIndex + 1}",
               style: GoogleFonts.nanumMyeongjo(
-                color: Colors.redAccent,
+                color: lineColor,
                 fontSize: 16 * scale,
                 fontStyle: FontStyle.italic,
                 fontWeight: FontWeight.bold,
@@ -255,7 +270,7 @@ class _WongojiEditorState extends State<WongojiEditor> {
             left: _marginHorizontal * scale,
             child: Container(
               decoration: BoxDecoration(
-                border: Border.all(color: Colors.redAccent, width: 1.0 * scale),
+                border: Border.all(color: lineColor, width: 1.0 * scale),
               ),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
@@ -276,10 +291,10 @@ class _WongojiEditorState extends State<WongojiEditor> {
                             decoration: BoxDecoration(
                               border: Border(
                                 right: colIndex < 19 
-                                    ? BorderSide(color: Colors.redAccent, width: 1.0 * scale)
+                                    ? BorderSide(color: lineColor, width: 1.0 * scale)
                                     : BorderSide.none,
                                 bottom: rowIndex < 9
-                                    ? BorderSide(color: Colors.redAccent, width: 1.0 * scale)
+                                    ? BorderSide(color: lineColor, width: 1.0 * scale)
                                     : BorderSide.none,
                               ),
                             ),
@@ -288,24 +303,22 @@ class _WongojiEditorState extends State<WongojiEditor> {
                                 Center(
                                   child: Text(
                                     char,
-                                    // Applied the Nanum Myeongjo font right here!
                                     style: GoogleFonts.nanumMyeongjo(
                                       fontSize: 15 * scale,
-                                      color: Colors.black,
+                                      color: textColor,
                                       letterSpacing: 0,
                                       fontWeight: FontWeight.w500,
                                     ),
                                   ),
                                 ),
-                                // Render the dot only if _isDotVisible is true!
                                 if (isActiveCell && !_isZoomedOut && !_isTyping && _isDotVisible)
                                   Align(
                                     alignment: FractionalOffset(_dotX, _dotY),
                                     child: Container(
-                                      width: 3.58 * scale, // Scaled down to exactly 80% area
+                                      width: 3.58 * scale, 
                                       height: 3.58 * scale,
-                                      decoration: const BoxDecoration(
-                                        color: Colors.black, // Perfect solid black ink
+                                      decoration: BoxDecoration(
+                                        color: dotColor, 
                                         shape: BoxShape.circle,
                                       ),
                                     ),
@@ -322,7 +335,7 @@ class _WongojiEditorState extends State<WongojiEditor> {
                       width: 20 * _cellDim * scale,
                       decoration: BoxDecoration(
                         border: Border(
-                          bottom: BorderSide(color: Colors.redAccent, width: 1.0 * scale),
+                          bottom: BorderSide(color: lineColor, width: 1.0 * scale),
                         ),
                       ),
                     );
@@ -339,29 +352,38 @@ class _WongojiEditorState extends State<WongojiEditor> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFE5E5E5),
+      backgroundColor: appBgColor,
       appBar: AppBar(
         title: Row(
           children: [
-            const Text("Wongoji ", style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
+            Text("Wongoji ", style: TextStyle(color: appBarTextColor, fontWeight: FontWeight.bold)),
             Text(
               "(공백 포함: $_charsWithSpace | 공백 제외: $_charsWithoutSpace)",
-              style: const TextStyle(color: Colors.black54, fontSize: 14),
+              style: TextStyle(color: appBarTextColor.withOpacity(0.7), fontSize: 14),
             ),
           ],
         ),
-        backgroundColor: Colors.white,
+        backgroundColor: appBarBgColor,
         elevation: 1,
         actions: [
+          // Theme Toggle Button
+          IconButton(
+            icon: Icon(
+              _themeMode == 0 ? Icons.light_mode : (_themeMode == 1 ? Icons.monochrome_photos : Icons.dark_mode)
+            ),
+            tooltip: 'Change Theme',
+            color: appBarTextColor,
+            onPressed: _cycleTheme,
+          ),
           IconButton(
             icon: const Icon(Icons.copy),
             tooltip: 'Copy to Clipboard',
-            color: Colors.black,
+            color: appBarTextColor,
             onPressed: _copyToClipboard,
           ),
           IconButton(
             icon: Icon(_isZoomedOut ? Icons.zoom_in : Icons.grid_view),
-            color: Colors.black,
+            color: appBarTextColor,
             onPressed: () {
               setState(() {
                 _isZoomedOut = !_isZoomedOut;
@@ -403,14 +425,18 @@ class _WongojiEditorState extends State<WongojiEditor> {
           ),
           Container(
             padding: const EdgeInsets.all(10),
-            color: Colors.white,
+            color: appBarBgColor,
             child: TextField(
               controller: _controller,
               maxLines: 4,
               autofocus: true,
-              decoration: const InputDecoration(
+              style: TextStyle(color: textColor),
+              decoration: InputDecoration(
                 hintText: "Type here... (Enter creates a new paragraph)",
-                border: OutlineInputBorder(),
+                hintStyle: TextStyle(color: textColor.withOpacity(0.5)),
+                fillColor: inputBgColor,
+                filled: true,
+                border: const OutlineInputBorder(),
               ),
             ),
           ),
