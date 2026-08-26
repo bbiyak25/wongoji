@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:google_fonts/google_fonts.dart'; // The new typography engine!
 import 'dart:async';
 import 'dart:math';
 
@@ -43,7 +44,7 @@ class _WongojiEditorState extends State<WongojiEditor> {
   double _dotY = 0.5;
   
   bool _isTyping = false;
-  bool _isDotVisible = true; // The secret background flag to handle the blink!
+  bool _isDotVisible = true; 
   Timer? _cursorTimer;
   Timer? _hideDotTimer;
 
@@ -59,11 +60,11 @@ class _WongojiEditorState extends State<WongojiEditor> {
     super.initState();
     _controller.addListener(_updateGrid);
     
-    // The Asymmetrical Timer: Loops every 700ms total
+    // Your Custom 500ms / 500ms Blink Timing
     _cursorTimer = Timer.periodic(const Duration(milliseconds: 1000), (timer) {
       if (!_isZoomedOut && !_isTyping) {
         setState(() {
-          _isDotVisible = true; // 1. Turn the dot ON
+          _isDotVisible = true; 
           
           bool isOccupied = false;
           if (_activePageIndex < _pages.length && _activeCellIndex < 200) {
@@ -78,7 +79,6 @@ class _WongojiEditorState extends State<WongojiEditor> {
           _dotY = 0.2 + (Random().nextDouble() * 0.6); 
         });
 
-        // 2. Wait 300ms, then turn the dot OFF (leaving 400ms of blank space before the loop restarts)
         Timer(const Duration(milliseconds: 500), () {
           if (mounted) {
             setState(() {
@@ -241,11 +241,11 @@ class _WongojiEditorState extends State<WongojiEditor> {
             right: _marginHorizontal * scale,
             child: Text(
               "No. ${pageIndex + 1}",
-              style: TextStyle(
+              style: GoogleFonts.nanumMyeongjo(
                 color: Colors.redAccent,
                 fontSize: 16 * scale,
-                fontFamily: 'serif',
                 fontStyle: FontStyle.italic,
+                fontWeight: FontWeight.bold,
               ),
             ),
           ),
@@ -288,10 +288,12 @@ class _WongojiEditorState extends State<WongojiEditor> {
                                 Center(
                                   child: Text(
                                     char,
-                                    style: TextStyle(
+                                    // Applied the Nanum Myeongjo font right here!
+                                    style: GoogleFonts.nanumMyeongjo(
                                       fontSize: 15 * scale,
                                       color: Colors.black,
                                       letterSpacing: 0,
+                                      fontWeight: FontWeight.w500,
                                     ),
                                   ),
                                 ),
@@ -300,10 +302,10 @@ class _WongojiEditorState extends State<WongojiEditor> {
                                   Align(
                                     alignment: FractionalOffset(_dotX, _dotY),
                                     child: Container(
-                                      width: 4 * scale,
-                                      height: 4 * scale,
+                                      width: 3.58 * scale, // Scaled down to exactly 80% area
+                                      height: 3.58 * scale,
                                       decoration: const BoxDecoration(
-                                        color: Colors.black54, 
+                                        color: Colors.black, // Perfect solid black ink
                                         shape: BoxShape.circle,
                                       ),
                                     ),
