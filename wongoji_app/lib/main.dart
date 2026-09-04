@@ -29,10 +29,11 @@ class WongojiEditor extends StatefulWidget {
 
 class _WongojiEditorState extends State<WongojiEditor> {
   final TextEditingController _controller = TextEditingController();
+  final TextEditingController _titleController = TextEditingController(); 
   final ScrollController _scrollController = ScrollController();
   
   List<List<String>> _pages = [List.generate(200, (index) => "")];
-  List<DateTime> _pageDates = [DateTime.now()]; // NEW: Tracks the exact birth date of each page!
+  List<DateTime> _pageDates = [DateTime.now()]; 
   
   bool _isZoomedOut = false;
   int _themeMode = 0; 
@@ -49,10 +50,13 @@ class _WongojiEditorState extends State<WongojiEditor> {
   bool _isDotVisible = true; 
   Timer? _cursorTimer;
   Timer? _hideDotTimer;
+  bool _isInternalUpdate = false; // Prevents infinite loops when auto-inserting page breaks
+
+  double _editorWidth = 340.0;
 
   final double _cellDim = 34.0;
   final double _rowGap = 12.0;
-  final double _marginTop = 60.0;
+  final double _marginTop = 80.0; 
   final double _marginBottom = 40.0;
   final double _marginHorizontal = 40.0;
   final double _pageSpacing = 30.0;
@@ -64,12 +68,17 @@ class _WongojiEditorState extends State<WongojiEditor> {
   Color get dotColor => _themeMode == 2 ? const Color(0xFFE0E0E0) : Colors.black;
   Color get appBarBgColor => _themeMode == 0 ? Colors.white : (_themeMode == 1 ? const Color(0xFF9E9E9E) : const Color(0xFF1E1E1E));
   Color get appBarTextColor => _themeMode == 0 ? Colors.black : (_themeMode == 1 ? Colors.black87 : Colors.white);
-  Color get inputBgColor => _themeMode == 0 ? Colors.white : (_themeMode == 1 ? const Color(0xFFE0E0E0) : const Color(0xFF2C2C2C));
+  Color get sidePanelBg => _themeMode == 0 ? const Color(0xFFF5F5F5) : (_themeMode == 1 ? const Color(0xFFD6D6D6) : const Color(0xFF1A1A1A));
 
   @override
   void initState() {
     super.initState();
+    
     _controller.addListener(_updateGrid);
+    
+    _titleController.addListener(() {
+      setState(() {});
+    });
     
     _cursorTimer = Timer.periodic(const Duration(milliseconds: 1000), (timer) {
       if (!_isZoomedOut && !_isTyping) {
@@ -103,6 +112,7 @@ class _WongojiEditorState extends State<WongojiEditor> {
   @override
   void dispose() {
     _controller.dispose();
+    _titleController.dispose();
     _scrollController.dispose();
     _cursorTimer?.cancel();
     _hideDotTimer?.cancel();
@@ -110,7 +120,10 @@ class _WongojiEditorState extends State<WongojiEditor> {
   }
 
   void _copyToClipboard() {
-    Clipboard.setData(ClipboardData(text: _controller.text));
+    String fullText = _titleController.text.isNotEmpty 
+        ? "${_titleController.text}\n\n${_controller.text}" 
+        : _controller.text;
+    Clipboard.setData(ClipboardData(text: fullText));
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: const Text('Text copied to clipboard!'),
@@ -126,9 +139,28 @@ class _WongojiEditorState extends State<WongojiEditor> {
     });
   }
 
+  Widget _buildTooltip({required String message, required Widget child}) {
+    return Tooltip(
+      message: message,
+      decoration: BoxDecoration(
+        color: Colors.white,
+        border: Border.all(color: const Color(0xFF767676), width: 1.0),
+      ),
+      textStyle: const TextStyle(
+        color: Colors.black, 
+        fontSize: 12,
+      ),
+      preferBelow: true,
+      verticalOffset: 24,
+      waitDuration: const Duration(milliseconds: 300),
+      child: child,
+    );
+  }
+
   void _updateGrid() {
-    String text = _controller.text;
+    if (_isInternalUpdate) return;
     
+    String text = _controller.text;
     int cursorPos = _controller.selection.baseOffset;
     if (cursorPos < 0) cursorPos = text.length; 
 
@@ -138,14 +170,17 @@ class _WongojiEditorState extends State<WongojiEditor> {
     List<Map<String, int>> cursorMap = []; 
     List<List<String>> newPages = [];
     List<String> currentPage = List.generate(200, (index) => "");
-    int cellIndex = 0;
+    
+    int cellIndex = 1; 
     bool isHalfFull = false; 
+    List<int> pageSplitIndices = []; // Tracks character indices where pages break
 
     void checkPageOverflow() {
-      if (cellIndex >= 200) {
+      while (cellIndex >= 200) {
         newPages.add(currentPage);
         currentPage = List.generate(200, (index) => "");
-        cellIndex = 0;
+        cellIndex -= 200;
+        pageSplitIndices.add(cursorMap.length);
       }
     }
 
@@ -164,12 +199,21 @@ class _WongojiEditorState extends State<WongojiEditor> {
         }
         int currentRow = cellIndex ~/ 20;
         cellIndex = (currentRow + 1) * 20 + 1; 
-        
-        if (cellIndex >= 200) {
-          newPages.add(currentPage);
-          currentPage = List.generate(200, (index) => "");
-          cellIndex = 1; 
+        checkPageOverflow();
+        continue;
+      }
+
+      if (char == ' ') {
+        if (isHalfFull) {
+          cellIndex++;
+          isHalfFull = false;
+          checkPageOverflow();
         }
+        if (cellIndex % 20 == 0) {
+          continue; 
+        }
+        currentPage[cellIndex] = char;
+        cellIndex++;
         continue;
       }
 
@@ -197,12 +241,9 @@ class _WongojiEditorState extends State<WongojiEditor> {
     cursorMap.add({"page": newPages.length, "cell": cellIndex});
     newPages.add(currentPage);
 
-    // NEW: Manage page dates! 
-    // If a new page was born, give it today's date.
     while (_pageDates.length < newPages.length) {
       _pageDates.add(DateTime.now());
     }
-    // If text was deleted and a page was destroyed, remove its date.
     if (_pageDates.length > newPages.length) {
       _pageDates = _pageDates.sublist(0, newPages.length);
     }
@@ -219,24 +260,30 @@ class _WongojiEditorState extends State<WongojiEditor> {
 
     setState(() {
       _pages = newPages;
-      _activePageIndex = cursorMap[cursorPos]["page"]!;
-      _activeCellIndex = cursorMap[cursorPos]["cell"]!;
+      if (cursorPos >= 0 && cursorPos < cursorMap.length) {
+        _activePageIndex = cursorMap[cursorPos]["page"]!;
+        _activeCellIndex = cursorMap[cursorPos]["cell"]!;
+      }
     });
   }
 
   void _jumpToPage(int pageIndex) {
     setState(() {
-      _isZoomedOut = false;
+      _isZoomedOut = false; // Instantly exits overview mode
     });
     
-    WidgetsBinding.instance.addPostFrameCallback((_) {
+    // FIX: Delay ensures the ListView is fully mounted before attempting to animate scroll
+    Future.delayed(const Duration(milliseconds: 60), () {
       if (_scrollController.hasClients) {
         double exactPageHeight = (_cellDim * 10) + (_rowGap * 9) + _marginTop + _marginBottom;
-        double offset = 20.0 + (pageIndex * (exactPageHeight + _pageSpacing));
+        double targetOffset = pageIndex * (exactPageHeight + _pageSpacing);
+        double maxScroll = _scrollController.position.maxScrollExtent;
+        if (targetOffset > maxScroll) targetOffset = maxScroll;
+
         _scrollController.animateTo(
-          offset,
-          duration: const Duration(milliseconds: 300),
-          curve: Curves.easeInOut,
+          targetOffset,
+          duration: const Duration(milliseconds: 400),
+          curve: Curves.easeOutCubic,
         );
       }
     });
@@ -246,7 +293,6 @@ class _WongojiEditorState extends State<WongojiEditor> {
     double paperWidth = ((_cellDim * 20) + (_marginHorizontal * 2)) * scale;
     double paperHeight = ((_cellDim * 10) + (_rowGap * 9) + _marginTop + _marginBottom) * scale;
     
-    // Formatting the date nicely (e.g., 2026. 08. 26.)
     DateTime pageDate = _pageDates[pageIndex];
     String dateStr = "${pageDate.year}. ${pageDate.month.toString().padLeft(2, '0')}. ${pageDate.day.toString().padLeft(2, '0')}.";
 
@@ -266,7 +312,6 @@ class _WongojiEditorState extends State<WongojiEditor> {
       ),
       child: Stack(
         children: [
-          // NEW: Date Stamp and Page Number
           Positioned(
             top: (_marginTop - 40) * scale,
             right: _marginHorizontal * scale,
@@ -294,82 +339,41 @@ class _WongojiEditorState extends State<WongojiEditor> {
             ),
           ),
           
+          if (pageIndex == 0 && _titleController.text.isNotEmpty)
+            Positioned(
+              top: 25 * scale,
+              left: _marginHorizontal * scale,
+              right: _marginHorizontal * scale,
+              child: Center(
+                child: Text(
+                  _titleController.text,
+                  style: GoogleFonts.nanumMyeongjo(
+                    fontSize: 22 * scale,
+                    fontWeight: FontWeight.bold,
+                    color: textColor,
+                    letterSpacing: 2.0,
+                  ),
+                ),
+              ),
+            ),
+          
           Positioned(
             top: _marginTop * scale,
             left: _marginHorizontal * scale,
-            child: Container(
-              decoration: BoxDecoration(
-                border: Border.all(color: lineColor, width: 1.0 * scale),
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: List.generate(19, (index) {
-                  if (index % 2 == 0) {
-                    int rowIndex = index ~/ 2;
-                    return SizedBox(
-                      height: _cellDim * scale,
-                      child: Row(
-                        children: List.generate(20, (colIndex) {
-                          int cellIndex = (rowIndex * 20) + colIndex;
-                          String char = _pages[pageIndex][cellIndex];
-                          
-                          bool isActiveCell = (pageIndex == _activePageIndex) && (cellIndex == _activeCellIndex);
-                          
-                          return Container(
-                            width: _cellDim * scale,
-                            decoration: BoxDecoration(
-                              border: Border(
-                                right: colIndex < 19 
-                                    ? BorderSide(color: lineColor, width: 1.0 * scale)
-                                    : BorderSide.none,
-                                bottom: rowIndex < 9
-                                    ? BorderSide(color: lineColor, width: 1.0 * scale)
-                                    : BorderSide.none,
-                              ),
-                            ),
-                            child: Stack(
-                              children: [
-                                Center(
-                                  child: Text(
-                                    char,
-                                    style: GoogleFonts.nanumMyeongjo(
-                                      fontSize: 15 * scale,
-                                      color: textColor,
-                                      letterSpacing: 0,
-                                      fontWeight: FontWeight.w500,
-                                    ),
-                                  ),
-                                ),
-                                if (isActiveCell && !_isZoomedOut && !_isTyping && _isDotVisible)
-                                  Align(
-                                    alignment: FractionalOffset(_dotX, _dotY),
-                                    child: Container(
-                                      width: 3.58 * scale, 
-                                      height: 3.58 * scale,
-                                      decoration: BoxDecoration(
-                                        color: dotColor, 
-                                        shape: BoxShape.circle,
-                                      ),
-                                    ),
-                                  ),
-                              ],
-                            ),
-                          );
-                        }),
-                      ),
-                    );
-                  } else {
-                    return Container(
-                      height: _rowGap * scale,
-                      width: 20 * _cellDim * scale,
-                      decoration: BoxDecoration(
-                        border: Border(
-                          bottom: BorderSide(color: lineColor, width: 1.0 * scale),
-                        ),
-                      ),
-                    );
-                  }
-                }),
+            child: CustomPaint(
+              size: Size(_cellDim * 20 * scale, ((_cellDim * 10) + (_rowGap * 9)) * scale),
+              painter: WongojiPainter(
+                pageData: _pages[pageIndex],
+                lineColor: lineColor,
+                textColor: textColor,
+                scale: scale,
+                activeCellIndex: _activeCellIndex,
+                isCurrentPage: (pageIndex == _activePageIndex) && !_isZoomedOut && !_isTyping,
+                isDotVisible: _isDotVisible,
+                dotX: _dotX,
+                dotY: _dotY,
+                dotColor: dotColor,
+                isZoomedOut: _isZoomedOut,
               ),
             ),
           ),
@@ -395,81 +399,259 @@ class _WongojiEditorState extends State<WongojiEditor> {
         backgroundColor: appBarBgColor,
         elevation: 1,
         actions: [
-          IconButton(
-            icon: Icon(
-              _themeMode == 0 ? Icons.light_mode : (_themeMode == 1 ? Icons.monochrome_photos : Icons.dark_mode)
+          _buildTooltip(
+            message: "Change Theme",
+            child: IconButton(
+              icon: Icon(
+                _themeMode == 0 ? Icons.light_mode : (_themeMode == 1 ? Icons.monochrome_photos : Icons.dark_mode)
+              ),
+              color: appBarTextColor,
+              onPressed: _cycleTheme,
             ),
-            tooltip: 'Change Theme',
-            color: appBarTextColor,
-            onPressed: _cycleTheme,
           ),
-          IconButton(
-            icon: const Icon(Icons.copy),
-            tooltip: 'Copy to Clipboard',
-            color: appBarTextColor,
-            onPressed: _copyToClipboard,
+          _buildTooltip(
+            message: "Copy to Clipboard",
+            child: IconButton(
+              icon: const Icon(Icons.copy),
+              color: appBarTextColor,
+              onPressed: _copyToClipboard,
+            ),
           ),
-          IconButton(
-            icon: Icon(_isZoomedOut ? Icons.zoom_in : Icons.grid_view),
-            color: appBarTextColor,
-            onPressed: () {
-              setState(() {
-                _isZoomedOut = !_isZoomedOut;
-              });
-            },
+          _buildTooltip(
+            message: _isZoomedOut ? "Return to Editor" : "View All Pages",
+            child: IconButton(
+              icon: Icon(_isZoomedOut ? Icons.zoom_in : Icons.grid_view),
+              color: appBarTextColor,
+              onPressed: () {
+                setState(() {
+                  _isZoomedOut = !_isZoomedOut;
+                });
+              },
+            ),
           )
         ],
       ),
-      body: Column(
-        children: [
-          Expanded(
-            child: _isZoomedOut
-                ? GridView.builder(
-                    padding: const EdgeInsets.all(20),
-                    gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                      crossAxisCount: 4, 
-                      crossAxisSpacing: 20,
-                      mainAxisSpacing: 20,
-                      childAspectRatio: 1.2, 
-                    ),
-                    itemCount: _pages.length,
-                    itemBuilder: (context, index) {
-                      return GestureDetector(
-                        onTap: () => _jumpToPage(index),
-                        child: IgnorePointer(
-                          child: Center(child: _buildPage(index, 0.23)), 
+      body: LayoutBuilder(
+        builder: (context, constraints) {
+          return Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch, 
+            children: [
+              Expanded(
+                child: _isZoomedOut
+                    ? GridView.builder(
+                        padding: const EdgeInsets.all(40),
+                        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                          crossAxisCount: 3, 
+                          crossAxisSpacing: 40,
+                          mainAxisSpacing: 40,
+                          childAspectRatio: 1.45, 
                         ),
-                      );
-                    },
-                  )
-                : ListView.builder(
-                    controller: _scrollController,
-                    padding: const EdgeInsets.only(top: 20),
-                    itemCount: _pages.length,
-                    itemBuilder: (context, index) {
-                      return Center(child: _buildPage(index, 1.0));
-                    },
-                  ),
-          ),
-          Container(
-            padding: const EdgeInsets.all(10),
-            color: appBarBgColor,
-            child: TextField(
-              controller: _controller,
-              maxLines: 4,
-              autofocus: true,
-              style: TextStyle(color: textColor),
-              decoration: InputDecoration(
-                hintText: "Type here... (Enter creates a new paragraph)",
-                hintStyle: TextStyle(color: textColor.withOpacity(0.5)),
-                fillColor: inputBgColor,
-                filled: true,
-                border: const OutlineInputBorder(),
+                        itemCount: _pages.length,
+                        itemBuilder: (context, index) {
+                          // FIX: Removed IgnorePointer so clicks are properly captured
+                          return GestureDetector(
+                            onTap: () => _jumpToPage(index),
+                            child: Center(child: _buildPage(index, 0.65)),
+                          );
+                        },
+                      )
+                    : ListView.builder(
+                        controller: _scrollController,
+                        padding: const EdgeInsets.only(top: 20),
+                        itemCount: _pages.length,
+                        itemBuilder: (context, index) {
+                          return Center(child: _buildPage(index, 1.0));
+                        },
+                      ),
               ),
-            ),
-          ),
-        ],
+              
+              if (!_isZoomedOut) ...[
+                MouseRegion(
+                  cursor: SystemMouseCursors.resizeLeftRight,
+                  child: GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onPanUpdate: (details) {
+                      setState(() {
+                        _editorWidth -= details.delta.dx;
+                        double maxAllowedEditorWidth = constraints.maxWidth - 800.0;
+                        _editorWidth = _editorWidth.clamp(
+                          340.0, 
+                          max(340.0, maxAllowedEditorWidth)
+                        );
+                      });
+                    },
+                    child: Container(
+                      width: 12.0, 
+                      color: sidePanelBg,
+                      child: Center(
+                        child: Container(
+                          width: 2.0,
+                          height: 40.0, 
+                          decoration: BoxDecoration(
+                            color: lineColor.withOpacity(0.4),
+                            borderRadius: BorderRadius.circular(2.0),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+                Container(
+                  width: _editorWidth, 
+                  color: sidePanelBg,
+                  padding: const EdgeInsets.only(top: 24.0, right: 24.0, bottom: 24.0, left: 12.0),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        "Editor",
+                        style: GoogleFonts.nanumMyeongjo(
+                          color: appBarTextColor.withOpacity(0.5),
+                          fontSize: 14,
+                          fontWeight: FontWeight.bold,
+                          letterSpacing: 1.2,
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      TextField(
+                        controller: _titleController,
+                        style: GoogleFonts.nanumMyeongjo(
+                          color: textColor,
+                          fontSize: 22,
+                          fontWeight: FontWeight.bold,
+                        ),
+                        decoration: InputDecoration(
+                          border: InputBorder.none,
+                          hintText: "Title...",
+                          hintStyle: GoogleFonts.nanumMyeongjo(
+                            color: textColor.withOpacity(0.3),
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                      Divider(color: lineColor.withOpacity(0.2)),
+                      Expanded(
+                        child: TextField(
+                          controller: _controller,
+                          maxLines: null,
+                          minLines: null, 
+                          expands: true,
+                          autofocus: true,
+                          style: GoogleFonts.nanumMyeongjo(
+                            color: textColor,
+                            fontSize: 18,
+                            height: 1.8,
+                          ),
+                          decoration: InputDecoration(
+                            border: InputBorder.none,
+                            hintText: "Start drafting here...",
+                            hintStyle: GoogleFonts.nanumMyeongjo(
+                              color: textColor.withOpacity(0.3),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ],
+          );
+        }
       ),
     );
+  }
+}
+
+class WongojiPainter extends CustomPainter {
+  final List<String> pageData;
+  final Color lineColor;
+  final Color textColor;
+  final double scale;
+  final int activeCellIndex;
+  final bool isCurrentPage;
+  final bool isDotVisible;
+  final double dotX;
+  final double dotY;
+  final Color dotColor;
+  final bool isZoomedOut; 
+
+  WongojiPainter({
+    required this.pageData,
+    required this.lineColor,
+    required this.textColor,
+    required this.scale,
+    required this.activeCellIndex,
+    required this.isCurrentPage,
+    required this.isDotVisible,
+    required this.dotX,
+    required this.dotY,
+    required this.dotColor,
+    required this.isZoomedOut,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final double cellDim = 34.0 * scale;
+    final double rowGap = 12.0 * scale;
+
+    final paintLine = Paint()
+      ..color = lineColor
+      ..strokeWidth = 1.0 * scale // RESTORED original crisp line weight
+      ..style = PaintingStyle.stroke;
+
+    canvas.drawRect(Rect.fromLTWH(0, 0, cellDim * 20, (cellDim * 10) + (rowGap * 9)), paintLine);
+
+    for (int row = 0; row < 10; row++) {
+      double y = row * (cellDim + rowGap);
+
+      if (row < 9) {
+         canvas.drawLine(Offset(0, y + cellDim), Offset(cellDim * 20, y + cellDim), paintLine);
+         canvas.drawLine(Offset(0, y + cellDim + rowGap), Offset(cellDim * 20, y + cellDim + rowGap), paintLine);
+      }
+
+      for (int col = 0; col < 20; col++) {
+        double x = col * cellDim;
+
+        if (col < 19) {
+          canvas.drawLine(Offset(x + cellDim, y), Offset(x + cellDim, y + cellDim), paintLine);
+        }
+
+        int cellIndex = (row * 20) + col;
+        String char = pageData[cellIndex];
+
+        if (char.isNotEmpty) {
+          TextSpan span = TextSpan(
+            style: GoogleFonts.nanumMyeongjo(
+              fontSize: 15 * scale, 
+              color: textColor, 
+              fontWeight: isZoomedOut ? FontWeight.w700 : FontWeight.w500,
+              letterSpacing: 0,
+            ), 
+            text: char
+          );
+          TextPainter tp = TextPainter(
+            text: span, 
+            textAlign: TextAlign.center, 
+            textDirection: TextDirection.ltr
+          );
+          tp.layout();
+          
+          double tx = x + (cellDim - tp.width) / 2;
+          double ty = y + (cellDim - tp.height) / 2;
+          tp.paint(canvas, Offset(tx, ty));
+        }
+
+        if (isCurrentPage && cellIndex == activeCellIndex && isDotVisible) {
+          final dotPaint = Paint()..color = dotColor..style = PaintingStyle.fill;
+          canvas.drawCircle(Offset(x + (cellDim * dotX), y + (cellDim * dotY)), 1.79 * scale, dotPaint);
+        }
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant WongojiPainter oldDelegate) {
+    return true; 
   }
 }
