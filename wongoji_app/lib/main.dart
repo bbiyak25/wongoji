@@ -4,13 +4,36 @@ import 'package:google_fonts/google_fonts.dart';
 import 'dart:async';
 import 'dart:math';
 
-// NEW PDF PACKAGES
+// PDF PACKAGES
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 
 void main() {
   runApp(const WongojiApp());
+}
+
+// ============================================================================
+// DATA MODEL
+// ============================================================================
+class Manuscript {
+  final String id;
+  String title;
+  String content;
+  String font;
+  DateTime lastModified;
+  int pageCount; 
+  DateTime? deletedAt; // NEW: Tracks if and when it was sent to the trash
+
+  Manuscript({
+    required this.id,
+    this.title = '',
+    this.content = '',
+    this.font = 'myeongjo',
+    required this.lastModified,
+    this.pageCount = 1,
+    this.deletedAt,
+  });
 }
 
 class WongojiApp extends StatelessWidget {
@@ -20,19 +43,631 @@ class WongojiApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return const MaterialApp(
       debugShowCheckedModeBanner: false,
-      home: WongojiEditor(),
+      home: NotebookHomeScreen(),
     );
   }
 }
 
+// ============================================================================
+// NOTEBOOK LANDING PAGE
+// ============================================================================
+class NotebookHomeScreen extends StatefulWidget {
+  const NotebookHomeScreen({Key? key}) : super(key: key);
+
+  @override
+  State<NotebookHomeScreen> createState() => _NotebookHomeScreenState();
+}
+
+class _NotebookHomeScreenState extends State<NotebookHomeScreen> {
+  List<Manuscript> _documents = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _cleanExpiredTrash();
+  }
+
+  // Automatically permanently delete items in trash older than 3 days
+  void _cleanExpiredTrash() {
+    final now = DateTime.now();
+    _documents.removeWhere((doc) => doc.deletedAt != null && now.difference(doc.deletedAt!).inDays >= 3);
+  }
+
+  List<Manuscript> get _activeDocuments => _documents.where((d) => d.deletedAt == null).toList();
+
+  void _openEditor([Manuscript? doc]) async {
+    final isNew = doc == null;
+    final targetDoc = doc ?? Manuscript(
+      id: DateTime.now().millisecondsSinceEpoch.toString(), 
+      lastModified: DateTime.now()
+    );
+
+    final result = await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => WongojiEditor(initialDocument: targetDoc),
+      ),
+    );
+
+    if (result != null && result is Manuscript) {
+      setState(() {
+        if (isNew) {
+          if (result.title.isNotEmpty || result.content.isNotEmpty) {
+            _documents.insert(0, result);
+          }
+        } else {
+          final index = _documents.indexWhere((d) => d.id == result.id);
+          if (index != -1) {
+            _documents[index] = result;
+            final updatedDoc = _documents.removeAt(index);
+            _documents.insert(0, updatedDoc);
+          }
+        }
+      });
+    }
+  }
+
+  void _moveToTrash(Manuscript doc) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: Colors.white,
+        title: Text("원고 삭제", style: GoogleFonts.nanumMyeongjo(fontWeight: FontWeight.bold)),
+        content: Text("이 원고를 휴지통으로 이동하시겠습니까?\n휴지통으로 이동한 원고는 3일 후 영구 삭제됩니다.", style: GoogleFonts.nanumMyeongjo(height: 1.5)),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text("취소", style: TextStyle(color: Colors.grey)),
+          ),
+          TextButton(
+            onPressed: () {
+              setState(() {
+                doc.deletedAt = DateTime.now(); // Stamp it for deletion
+              });
+              Navigator.pop(ctx);
+            },
+            child: const Text("삭제", style: TextStyle(color: Colors.redAccent)),
+          ),
+        ],
+      )
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final activeDocs = _activeDocuments;
+
+    return Scaffold(
+      backgroundColor: const Color(0xFFF5F5F7), 
+      appBar: AppBar(
+        backgroundColor: const Color(0xFFF5F5F7),
+        elevation: 0,
+        title: const Text(
+          "Wongoji Studio", 
+          style: TextStyle(color: Colors.black87, fontWeight: FontWeight.bold, letterSpacing: 1.2)
+        ),
+        actions: [
+          // Sidebar menu trigger
+          Builder(
+            builder: (context) => IconButton(
+              icon: const Icon(Icons.menu, color: Colors.black87),
+              onPressed: () => Scaffold.of(context).openEndDrawer(),
+            ),
+          ),
+          const SizedBox(width: 16),
+        ],
+      ),
+      endDrawer: _buildSidebarDrawer(context),
+      body: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 40.0, vertical: 20.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              "내 원고함",
+              style: GoogleFonts.nanumMyeongjo(fontSize: 28, fontWeight: FontWeight.bold, color: Colors.black87),
+            ),
+            const SizedBox(height: 30),
+            Expanded(
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  int columns = constraints.maxWidth > 1200 ? 5 : (constraints.maxWidth > 800 ? 4 : 2);
+                  
+                  return GridView.builder(
+                    gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                      crossAxisCount: columns,
+                      crossAxisSpacing: 40,
+                      mainAxisSpacing: 40,
+                      childAspectRatio: 0.55, 
+                    ),
+                    itemCount: activeDocs.length + 1, 
+                    itemBuilder: (context, index) {
+                      if (index == 0) return _buildNewDocumentCard();
+                      final doc = activeDocs[index - 1];
+                      return DocumentCard(
+                        doc: doc,
+                        onTap: () => _openEditor(doc),
+                        onUpdate: () => setState(() {}), 
+                        onDelete: () => _moveToTrash(doc),
+                        isTrashMode: false,
+                      );
+                    },
+                  );
+                }
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // --- NEW SIDEBAR DRAWER ---
+  Widget _buildSidebarDrawer(BuildContext context) {
+    return Drawer(
+      backgroundColor: Colors.white,
+      child: Column(
+        children: [
+          UserAccountsDrawerHeader(
+            decoration: const BoxDecoration(color: Color(0xFFF5F5F7)),
+            accountName: Text("Wongoji 작가님", style: GoogleFonts.nanumMyeongjo(color: Colors.black87, fontWeight: FontWeight.bold, fontSize: 18)),
+            accountEmail: Text("로그인이 필요합니다.", style: GoogleFonts.nanumMyeongjo(color: Colors.grey.shade600)),
+            currentAccountPicture: CircleAvatar(
+              backgroundColor: Colors.grey.shade300,
+              child: const Icon(Icons.person, color: Colors.white, size: 40),
+            ),
+          ),
+          ListTile(
+            leading: Icon(Icons.delete_outline, color: Colors.grey.shade700),
+            title: Text("휴지통", style: GoogleFonts.nanumMyeongjo(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.black87)),
+            onTap: () {
+              Navigator.pop(context); // Close drawer
+              Navigator.push(
+                context, 
+                MaterialPageRoute(builder: (_) => TrashBinScreen(
+                  documents: _documents,
+                  onUpdate: () => setState(() {}),
+                ))
+              );
+            },
+          ),
+          const Spacer(),
+          Padding(
+            padding: const EdgeInsets.all(20.0),
+            child: Text("Wongoji Studio v0.49", style: TextStyle(color: Colors.grey.shade400, fontSize: 12)),
+          )
+        ],
+      ),
+    );
+  }
+
+  Widget _buildNewDocumentCard() {
+    return Column(
+      children: [
+        Expanded(
+          child: Center(
+            child: AspectRatio(
+              aspectRatio: 1 / 1.414,
+              child: GestureDetector(
+                onTap: () => _openEditor(),
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.5),
+                    borderRadius: BorderRadius.circular(4),
+                    border: Border.all(color: Colors.grey.withOpacity(0.4), width: 2, style: BorderStyle.solid),
+                  ),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(Icons.add, size: 48, color: Colors.grey.shade400),
+                      const SizedBox(height: 16),
+                      Text(
+                        "새 원고",
+                        style: GoogleFonts.nanumMyeongjo(fontSize: 16, color: Colors.grey.shade600, fontWeight: FontWeight.bold),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(height: 16),
+        const SizedBox(height: 24), 
+        const SizedBox(height: 4), 
+        const SizedBox(height: 16), 
+      ],
+    );
+  }
+}
+
+// ============================================================================
+// TRASH BIN SCREEN
+// ============================================================================
+class TrashBinScreen extends StatefulWidget {
+  final List<Manuscript> documents;
+  final VoidCallback onUpdate;
+
+  const TrashBinScreen({Key? key, required this.documents, required this.onUpdate}) : super(key: key);
+
+  @override
+  State<TrashBinScreen> createState() => _TrashBinScreenState();
+}
+
+class _TrashBinScreenState extends State<TrashBinScreen> {
+  List<Manuscript> get _trashDocuments => widget.documents.where((d) => d.deletedAt != null).toList();
+
+  void _handleTrashAction(Manuscript doc) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: Colors.white,
+        title: Text("원고 관리", style: GoogleFonts.nanumMyeongjo(fontWeight: FontWeight.bold)),
+        content: Text("이 원고를 어떻게 처리하시겠습니까?", style: GoogleFonts.nanumMyeongjo()),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text("취소", style: TextStyle(color: Colors.grey)),
+          ),
+          TextButton(
+            onPressed: () {
+              // Delete permanently
+              widget.documents.removeWhere((d) => d.id == doc.id);
+              widget.onUpdate();
+              setState(() {});
+              Navigator.pop(ctx);
+            },
+            child: const Text("영구 삭제", style: TextStyle(color: Colors.redAccent)),
+          ),
+          TextButton(
+            onPressed: () {
+              // Restore
+              doc.deletedAt = null;
+              widget.onUpdate();
+              setState(() {});
+              Navigator.pop(ctx);
+            },
+            child: const Text("원고함으로 복구", style: TextStyle(color: Colors.blueAccent, fontWeight: FontWeight.bold)),
+          ),
+        ],
+      )
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final docs = _trashDocuments;
+
+    return Scaffold(
+      backgroundColor: const Color(0xFFF5F5F7), 
+      appBar: AppBar(
+        backgroundColor: const Color(0xFFF5F5F7),
+        elevation: 0,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back_ios_new, color: Colors.black87),
+          onPressed: () => Navigator.pop(context),
+        ),
+      ),
+      body: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 40.0, vertical: 20.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.delete_outline, size: 32, color: Colors.grey.shade700),
+                const SizedBox(width: 12),
+                Text(
+                  "휴지통",
+                  style: GoogleFonts.nanumMyeongjo(fontSize: 28, fontWeight: FontWeight.bold, color: Colors.black87),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Text(
+              "휴지통에 있는 항목은 3일 후 영구 삭제됩니다.",
+              style: GoogleFonts.nanumMyeongjo(fontSize: 14, color: Colors.grey.shade600),
+            ),
+            const SizedBox(height: 30),
+            if (docs.isEmpty)
+              Expanded(
+                child: Center(
+                  child: Text("휴지통이 비어 있습니다.", style: GoogleFonts.nanumMyeongjo(color: Colors.grey.shade400, fontSize: 18)),
+                ),
+              )
+            else
+              Expanded(
+                child: LayoutBuilder(
+                  builder: (context, constraints) {
+                    int columns = constraints.maxWidth > 1200 ? 5 : (constraints.maxWidth > 800 ? 4 : 2);
+                    return GridView.builder(
+                      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                        crossAxisCount: columns,
+                        crossAxisSpacing: 40,
+                        mainAxisSpacing: 40,
+                        childAspectRatio: 0.55, 
+                      ),
+                      itemCount: docs.length, 
+                      itemBuilder: (context, index) {
+                        return DocumentCard(
+                          doc: docs[index],
+                          onTap: () => _handleTrashAction(docs[index]),
+                          onUpdate: () {}, 
+                          onDelete: () {}, // Not used in trash
+                          isTrashMode: true,
+                        );
+                      },
+                    );
+                  }
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ============================================================================
+// DYNAMIC DOCUMENT CARD 
+// ============================================================================
+class DocumentCard extends StatelessWidget {
+  final Manuscript doc;
+  final VoidCallback onTap;
+  final VoidCallback onUpdate;
+  final VoidCallback onDelete;
+  final bool isTrashMode;
+
+  const DocumentCard({
+    Key? key, 
+    required this.doc, 
+    required this.onTap, 
+    required this.onUpdate,
+    required this.onDelete,
+    required this.isTrashMode,
+  }) : super(key: key);
+
+  void _editTitleDialog(BuildContext context) {
+    TextEditingController tempCtrl = TextEditingController(text: doc.title);
+    
+    void saveAndClose() {
+      doc.title = tempCtrl.text.trim();
+      onUpdate(); 
+      Navigator.pop(context);
+    }
+
+    showDialog(
+      context: context,
+      builder: (ctx) {
+        return AlertDialog(
+          backgroundColor: Colors.white,
+          title: Text("제목 수정", style: GoogleFonts.nanumMyeongjo(fontWeight: FontWeight.bold, color: Colors.black87)),
+          content: TextField(
+            controller: tempCtrl,
+            autofocus: true,
+            style: GoogleFonts.nanumMyeongjo(color: Colors.black87),
+            decoration: InputDecoration(
+              hintText: "새 제목을 입력하세요",
+              hintStyle: GoogleFonts.nanumMyeongjo(color: Colors.grey.shade400),
+              focusedBorder: const UnderlineInputBorder(borderSide: BorderSide(color: Colors.redAccent)),
+            ),
+            onSubmitted: (_) => saveAndClose(), 
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text("취소", style: TextStyle(color: Colors.grey)),
+            ),
+            TextButton(
+              onPressed: saveAndClose,
+              child: const Text("확인", style: TextStyle(color: Colors.redAccent)),
+            ),
+          ],
+        );
+      }
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // If in trash, show days remaining. Otherwise, show date modified.
+    String subtitleStr = "";
+    if (isTrashMode && doc.deletedAt != null) {
+      int daysLeft = 3 - DateTime.now().difference(doc.deletedAt!).inDays;
+      if (daysLeft < 0) daysLeft = 0;
+      subtitleStr = "영구 삭제까지 ${daysLeft}일 남음";
+    } else {
+      subtitleStr = "${doc.pageCount}쪽 • ${doc.lastModified.year}.${doc.lastModified.month.toString().padLeft(2, '0')}.${doc.lastModified.day.toString().padLeft(2, '0')}";
+    }
+
+    String displayTitle = doc.title.trim().isNotEmpty ? doc.title : "제목 없음";
+
+    return Column(
+      children: [
+        // 1. Vertical Cover Art 
+        Expanded(
+          child: Center(
+            child: AspectRatio(
+              aspectRatio: 1 / 1.414,
+              child: GestureDetector(
+                onTap: onTap,
+                child: Stack(
+                  children: [
+                    Container(
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFFDFBF7), 
+                        borderRadius: BorderRadius.circular(4),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withOpacity(0.08),
+                            blurRadius: 10,
+                            offset: const Offset(2, 4),
+                          )
+                        ],
+                      ),
+                      child: CustomPaint(
+                        painter: MinimalCoverPainter(
+                          title: displayTitle,
+                          fontFamily: doc.font,
+                          lineColor: Colors.redAccent.withOpacity(0.6),
+                          textColor: const Color(0xFF212121),
+                        ),
+                      ),
+                    ),
+                    
+                    // The Trash Delete Icon Button Overlay
+                    if (!isTrashMode)
+                      Positioned(
+                        top: 8,
+                        right: 8,
+                        child: GestureDetector(
+                          onTap: onDelete,
+                          child: Container(
+                            padding: const EdgeInsets.all(6),
+                            decoration: BoxDecoration(
+                              color: Colors.white.withOpacity(0.8),
+                              shape: BoxShape.circle,
+                            ),
+                            child: Icon(Icons.delete_outline, size: 16, color: Colors.grey.shade700),
+                          ),
+                        ),
+                      )
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(height: 16),
+        
+        // 2. Title with Pencil Button
+        SizedBox(
+          height: 24,
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Flexible(
+                child: Text(
+                  displayTitle,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: GoogleFonts.nanumMyeongjo(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black87),
+                ),
+              ),
+              if (!isTrashMode) ...[
+                const SizedBox(width: 6),
+                GestureDetector(
+                  onTap: () => _editTitleDialog(context),
+                  child: Icon(Icons.edit, size: 16, color: Colors.grey.shade500),
+                )
+              ]
+            ],
+          ),
+        ),
+        const SizedBox(height: 4),
+        
+        // 3. Subtitle (Page Count / Date / Trash Warning)
+        Text(
+          subtitleStr,
+          style: GoogleFonts.nanumMyeongjo(
+            fontSize: 13, 
+            color: isTrashMode ? Colors.redAccent.withOpacity(0.8) : Colors.grey.shade500
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+// ============================================================================
+// MINIMAL COVER PAINTER 
+// ============================================================================
+class MinimalCoverPainter extends CustomPainter {
+  final String title;
+  final String fontFamily;
+  final Color lineColor;
+  final Color textColor;
+
+  MinimalCoverPainter({
+    required this.title, 
+    required this.fontFamily, 
+    required this.lineColor, 
+    required this.textColor
+  });
+
+  TextStyle getTextStyle(String fontType, double fontSize, Color color) {
+    final fallback = const ['Apple SD Gothic Neo', 'Malgun Gothic', 'sans-serif'];
+    
+    if (fontType == 'pen') return GoogleFonts.nanumPenScript(fontSize: fontSize * 1.5, color: color, fontWeight: FontWeight.bold).copyWith(fontFamilyFallback: fallback);
+    if (fontType == 'gothic') return GoogleFonts.nanumGothic(fontSize: fontSize, color: color, fontWeight: FontWeight.bold).copyWith(fontFamilyFallback: fallback);
+    return GoogleFonts.nanumMyeongjo(fontSize: fontSize, color: color, fontWeight: FontWeight.w900).copyWith(fontFamilyFallback: fallback);
+  }
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    String cleanTitle = title.trim(); 
+    if (cleanTitle.isEmpty) cleanTitle = "제목없음";
+
+    int maxRows = 8; 
+    int cols = (cleanTitle.length / maxRows).ceil();
+    if (cols < 1) cols = 1;
+    if (cols > 4) cols = 4; 
+
+    double cellDim = 24.0; 
+    double gridW = cols * cellDim;
+    double gridH = maxRows * cellDim;
+
+    double startX = (size.width - gridW) / 2;
+    double startY = (size.height - gridH) / 2;
+
+    final paintLine = Paint()..color = lineColor..strokeWidth = 0.8..style = PaintingStyle.stroke;
+
+    canvas.drawRect(Rect.fromLTWH(startX, startY, gridW, gridH), paintLine);
+
+    for(int i = 1; i < cols; i++) {
+       canvas.drawLine(Offset(startX + (i * cellDim), startY), Offset(startX + (i * cellDim), startY + gridH), paintLine);
+    }
+    
+    for(int i = 1; i < maxRows; i++) {
+       canvas.drawLine(Offset(startX, startY + (i * cellDim)), Offset(startX + gridW, startY + (i * cellDim)), paintLine);
+    }
+
+    for(int c = 0; c < cols; c++) {
+       for(int r = 0; r < maxRows; r++) {
+          int stringIndex = c * maxRows + r;
+          int visualCol = (cols - 1) - c; 
+          
+          if (stringIndex < cleanTitle.length) {
+             String char = cleanTitle[stringIndex];
+             
+             TextSpan span = TextSpan(style: getTextStyle(fontFamily, cellDim * 0.65, textColor), text: char);
+             TextPainter tp = TextPainter(text: span, textAlign: TextAlign.center, textDirection: TextDirection.ltr);
+             tp.layout();
+             
+             double tx = startX + (visualCol * cellDim) + (cellDim - tp.width) / 2;
+             double ty = startY + (r * cellDim) + (cellDim - tp.height) / 2;
+             tp.paint(canvas, Offset(tx, ty));
+          }
+       }
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant MinimalCoverPainter oldDelegate) => true;
+}
+
+// ============================================================================
+// NON-DESTRUCTIVE TEXT CONTROLLER
+// ============================================================================
 class WongojiTextEditingController extends TextEditingController {
   List<int> pageBreakIndices = [];
   String currentFont = 'myeongjo';
 
   TextStyle _getFontStyle(TextStyle? baseStyle) {
-    if (currentFont == 'pen') return GoogleFonts.nanumPenScript(textStyle: baseStyle, fontSize: (baseStyle?.fontSize ?? 15) * 1.3);
-    if (currentFont == 'gothic') return GoogleFonts.nanumGothic(textStyle: baseStyle);
-    return GoogleFonts.nanumMyeongjo(textStyle: baseStyle);
+    final fallback = const ['Apple SD Gothic Neo', 'Malgun Gothic', 'sans-serif'];
+    if (currentFont == 'pen') return GoogleFonts.nanumPenScript(textStyle: baseStyle, fontSize: (baseStyle?.fontSize ?? 15) * 1.3).copyWith(fontFamilyFallback: fallback);
+    if (currentFont == 'gothic') return GoogleFonts.nanumGothic(textStyle: baseStyle).copyWith(fontFamilyFallback: fallback);
+    return GoogleFonts.nanumMyeongjo(textStyle: baseStyle).copyWith(fontFamilyFallback: fallback);
   }
 
   @override
@@ -48,37 +683,37 @@ class WongojiTextEditingController extends TextEditingController {
     int pageCounter = 2; 
 
     for (int breakIndex in pageBreakIndices) {
-      if (breakIndex >= previousIndex && breakIndex < text.length) {
+      if (breakIndex >= previousIndex && breakIndex <= text.length) {
         spans.add(TextSpan(text: text.substring(previousIndex, breakIndex), style: activeStyle));
         
-        if (text[breakIndex] == '\n') {
-           spans.add(WidgetSpan(
-             alignment: PlaceholderAlignment.middle,
-             child: Container(
-               margin: const EdgeInsets.symmetric(vertical: 12.0),
-               child: Row(
-                 children: [
-                   Expanded(child: Container(height: 1.0, color: Colors.redAccent.withOpacity(0.6))),
-                   Padding(
-                     padding: const EdgeInsets.symmetric(horizontal: 12.0),
-                     child: Text(
-                       "p. $pageCounter",
-                       style: GoogleFonts.nanumMyeongjo(
-                         color: Colors.redAccent,
-                         fontSize: 13,
-                         fontWeight: FontWeight.bold,
-                         fontStyle: FontStyle.italic,
-                       ),
-                     ),
-                   ),
-                   Expanded(child: Container(height: 1.0, color: Colors.redAccent.withOpacity(0.6))),
-                 ],
-               ),
-             )
-           ));
-           previousIndex = breakIndex + 1; 
-           pageCounter++;
-        }
+        spans.add(WidgetSpan(
+          alignment: PlaceholderAlignment.middle,
+          child: Container(
+            width: double.infinity,
+            margin: const EdgeInsets.symmetric(vertical: 20.0),
+            child: Row(
+              children: [
+                Expanded(child: Container(height: 1.0, color: Colors.redAccent.withOpacity(0.4))),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 12.0),
+                  child: Text(
+                    "p. $pageCounter",
+                    style: GoogleFonts.nanumMyeongjo(
+                      color: Colors.redAccent.withOpacity(0.8),
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                      fontStyle: FontStyle.italic,
+                    ),
+                  ),
+                ),
+                Expanded(child: Container(height: 1.0, color: Colors.redAccent.withOpacity(0.4))),
+              ],
+            ),
+          )
+        ));
+        
+        previousIndex = breakIndex; 
+        pageCounter++;
       }
     }
 
@@ -90,8 +725,13 @@ class WongojiTextEditingController extends TextEditingController {
   }
 }
 
+// ============================================================================
+// WONGOJI EDITOR
+// ============================================================================
 class WongojiEditor extends StatefulWidget {
-  const WongojiEditor({Key? key}) : super(key: key);
+  final Manuscript initialDocument;
+
+  const WongojiEditor({Key? key, required this.initialDocument}) : super(key: key);
 
   @override
   State<WongojiEditor> createState() => _WongojiEditorState();
@@ -107,7 +747,7 @@ class _WongojiEditorState extends State<WongojiEditor> {
   
   bool _isZoomedOut = false;
   int _themeMode = 0; 
-  String _selectedFont = 'myeongjo'; // New Font State
+  String _selectedFont = 'myeongjo'; 
 
   int _charsWithSpace = 0;
   int _charsWithoutSpace = 0;
@@ -121,7 +761,6 @@ class _WongojiEditorState extends State<WongojiEditor> {
   bool _isDotVisible = true; 
   Timer? _cursorTimer;
   Timer? _hideDotTimer;
-  bool _isInternalUpdate = false; 
 
   double _editorWidth = 340.0;
 
@@ -169,9 +808,16 @@ class _WongojiEditorState extends State<WongojiEditor> {
   void initState() {
     super.initState();
     _randomHint = _hintLibrary[Random().nextInt(_hintLibrary.length)];
+    
+    _titleController.text = widget.initialDocument.title;
+    _controller.text = widget.initialDocument.content;
+    _selectedFont = widget.initialDocument.font;
+
     _controller.addListener(_updateGrid);
     _titleController.addListener(() { setState(() {}); });
     
+    WidgetsBinding.instance.addPostFrameCallback((_) { _updateGrid(); });
+
     _cursorTimer = Timer.periodic(const Duration(milliseconds: 1000), (timer) {
       if (!_isZoomedOut && !_isTyping) {
         setState(() {
@@ -205,58 +851,258 @@ class _WongojiEditorState extends State<WongojiEditor> {
     super.dispose();
   }
 
-  // --- EXPORT FUNCTIONS ---
+  void _saveAndClose() {
+    final updatedDoc = Manuscript(
+      id: widget.initialDocument.id,
+      title: _titleController.text,
+      content: _controller.text,
+      font: _selectedFont,
+      lastModified: DateTime.now(),
+      pageCount: _pages.length, 
+    );
+    Navigator.pop(context, updatedDoc);
+  }
+
   void _copyToClipboard() {
     String fullText = _titleController.text.isNotEmpty 
         ? "${_titleController.text}\n\n${_controller.text}" 
         : _controller.text;
     Clipboard.setData(ClipboardData(text: fullText));
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: const Text('클립보드에 복사되었습니다!'),
-        duration: const Duration(seconds: 2),
-        backgroundColor: _themeMode == 2 ? Colors.white24 : Colors.black87,
-      ),
+  }
+
+  void _showFontDialog() {
+    showDialog(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          backgroundColor: appBarBgColor,
+          title: Text("글꼴 변경", style: GoogleFonts.nanumMyeongjo(color: appBarTextColor, fontWeight: FontWeight.bold)),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                leading: Icon(Icons.text_fields, color: appBarTextColor),
+                title: Text("명조체 (기본)", style: GoogleFonts.nanumMyeongjo(color: textColor, fontSize: 16)),
+                onTap: () { 
+                  setState(() { _selectedFont = 'myeongjo'; }); 
+                  Navigator.pop(context); 
+                },
+              ),
+              ListTile(
+                leading: Icon(Icons.text_format, color: appBarTextColor),
+                title: Text("고딕체", style: GoogleFonts.nanumGothic(color: textColor, fontSize: 16)),
+                onTap: () { 
+                  setState(() { _selectedFont = 'gothic'; }); 
+                  Navigator.pop(context); 
+                },
+              ),
+              ListTile(
+                leading: Icon(Icons.draw, color: appBarTextColor),
+                title: Text("손글씨 (Nanum Pen Script)", style: GoogleFonts.nanumPenScript(color: textColor, fontSize: 22)),
+                onTap: () { 
+                  setState(() { _selectedFont = 'pen'; }); 
+                  Navigator.pop(context); 
+                },
+              ),
+            ],
+          ),
+        );
+      }
     );
   }
 
   Future<void> _exportToPDF() async {
+    String fileName = _titleController.text.trim();
+
+    if (fileName.isEmpty) {
+      final result = await showDialog<String>(
+        context: context,
+        builder: (BuildContext dialogContext) {
+          String tempName = "";
+          return AlertDialog(
+            backgroundColor: appBarBgColor,
+            title: Text(
+              "PDF 저장",
+              style: GoogleFonts.nanumMyeongjo(fontWeight: FontWeight.bold, color: appBarTextColor),
+            ),
+            content: TextField(
+              autofocus: true,
+              style: GoogleFonts.nanumMyeongjo(color: textColor),
+              decoration: InputDecoration(
+                hintText: "파일 이름을 입력해주세요.",
+                hintStyle: GoogleFonts.nanumMyeongjo(color: textColor.withOpacity(0.4)),
+                focusedBorder: const UnderlineInputBorder(
+                  borderSide: BorderSide(color: Colors.redAccent),
+                ),
+              ),
+              onChanged: (value) {
+                tempName = value;
+              },
+              onSubmitted: (value) {
+                Navigator.pop(dialogContext, value);
+              },
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext, null),
+                child: const Text("취소", style: TextStyle(color: Colors.grey)),
+              ),
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext, tempName),
+                child: const Text("확인", style: TextStyle(color: Colors.redAccent)),
+              ),
+            ],
+          );
+        },
+      );
+
+      if (result == null || result.trim().isEmpty) return; 
+      fileName = result.trim();
+    }
+
+    if (!mounted) return;
+
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: const Text('PDF를 생성하는 중입니다...'),
-        duration: const Duration(seconds: 2),
+        content: Text(
+          'PDF 내보내는 중...',
+          textAlign: TextAlign.center,
+          style: GoogleFonts.nanumMyeongjo(fontWeight: FontWeight.bold, fontSize: 14),
+        ),
+        duration: const Duration(milliseconds: 700),
+        behavior: SnackBarBehavior.floating,
+        margin: const EdgeInsets.only(bottom: 30, left: 100, right: 100),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
         backgroundColor: _themeMode == 2 ? Colors.white24 : Colors.black87,
       ),
     );
 
     final pdf = pw.Document();
     
-    // Cloud-loading the Google Font into the PDF engine so Korean renders perfectly
-    final font = await PdfGoogleFonts.nanumMyeongjoRegular();
+    pw.Font font;
+    if (_selectedFont == 'pen') {
+      font = await PdfGoogleFonts.nanumPenScriptRegular();
+    } else if (_selectedFont == 'gothic') {
+      font = await PdfGoogleFonts.nanumGothicRegular();
+    } else {
+      font = await PdfGoogleFonts.nanumMyeongjoRegular();
+    }
 
-    pdf.addPage(
-      pw.MultiPage(
-        pageFormat: PdfPageFormat.a4,
-        margin: const pw.EdgeInsets.all(40),
-        build: (pw.Context context) {
-          return [
-            if (_titleController.text.isNotEmpty) ...[
-              pw.Center(
-                child: pw.Text(_titleController.text, style: pw.TextStyle(font: font, fontSize: 24)),
+    final double cellDim = 32.0;
+    final double rowGap = 12.0;
+    final PdfColor pdfLineColor = PdfColor.fromHex('#FF5252');
+    final PdfColor pdfTextColor = PdfColor.fromHex('#212121');
+
+    for (int pageIndex = 0; pageIndex < _pages.length; pageIndex++) {
+      pdf.addPage(
+        pw.Page(
+          pageFormat: PdfPageFormat.a4.landscape,
+          margin: const pw.EdgeInsets.all(0),
+          build: (pw.Context context) {
+            List<pw.Widget> rowWidgets = [];
+            for (int r = 0; r < 10; r++) {
+              List<pw.Widget> cellWidgets = [];
+              for (int c = 0; c < 20; c++) {
+                int cellIndex = (r * 20) + c;
+                String char = _pages[pageIndex][cellIndex];
+                
+                cellWidgets.add(
+                  pw.Container(
+                    width: cellDim,
+                    height: cellDim,
+                    alignment: pw.Alignment.center,
+                    decoration: pw.BoxDecoration(
+                      border: pw.Border(
+                        right: c < 19 ? pw.BorderSide(color: pdfLineColor, width: 0.8) : pw.BorderSide.none,
+                      )
+                    ),
+                    child: char.isNotEmpty ? pw.Text(
+                      char, 
+                      style: pw.TextStyle(
+                        font: font, 
+                        fontSize: _selectedFont == 'pen' ? 18 : 15, 
+                        color: pdfTextColor
+                      )
+                    ) : null,
+                  )
+                );
+              }
+              
+              rowWidgets.add(
+                pw.Container(
+                  decoration: pw.BoxDecoration(
+                    border: pw.Border(
+                      top: pw.BorderSide(color: pdfLineColor, width: 0.8),
+                      bottom: pw.BorderSide(color: pdfLineColor, width: 0.8),
+                    )
+                  ),
+                  child: pw.Row(children: cellWidgets),
+                )
+              );
+              
+              if (r < 9) {
+                rowWidgets.add(pw.SizedBox(height: rowGap));
+              }
+            }
+            
+            final gridWidget = pw.Container(
+              decoration: pw.BoxDecoration(
+                border: pw.Border(
+                  left: pw.BorderSide(color: pdfLineColor, width: 0.8),
+                  right: pw.BorderSide(color: pdfLineColor, width: 0.8),
+                )
               ),
-              pw.SizedBox(height: 30),
-            ],
-            pw.Text(
-              _controller.text.replaceAll('\n', ''), // Remove artificial line breaks
-              style: pw.TextStyle(font: font, fontSize: 12, lineSpacing: 10),
-            ),
-          ];
-        },
-      ),
-    );
+              child: pw.Column(children: rowWidgets),
+            );
 
-    // This native print/share API bridges smoothly from browser to local system
-    await Printing.sharePdf(bytes: await pdf.save(), filename: 'wongoji_manuscript.pdf');
+            return pw.Center(
+              child: pw.Container(
+                width: (cellDim * 20) + 80,
+                height: (cellDim * 10) + (rowGap * 9) + 100,
+                child: pw.Stack(
+                  children: [
+                    pw.Positioned(
+                      top: 10,
+                      right: 40,
+                      child: pw.Text(
+                        "No. ${pageIndex + 1}",
+                        style: pw.TextStyle(
+                          font: font, 
+                          fontSize: 14, 
+                          color: pdfLineColor,
+                        ),
+                      ),
+                    ),
+                    if (pageIndex == 0 && _titleController.text.isNotEmpty)
+                      pw.Positioned(
+                        top: 25,
+                        left: 40,
+                        right: 40,
+                        child: pw.Center(
+                          child: pw.Text(
+                            _titleController.text,
+                            style: pw.TextStyle(
+                              font: font, 
+                              fontSize: 24, 
+                              color: pdfTextColor
+                            ),
+                          ),
+                        ),
+                      ),
+                    pw.Positioned(
+                      top: 70,
+                      left: 40,
+                      child: gridWidget,
+                    ),
+                  ]
+                )
+              )
+            );
+          },
+        ),
+      );
+    }
+    await Printing.sharePdf(bytes: await pdf.save(), filename: '$fileName.pdf');
   }
 
   void _cycleTheme() {
@@ -279,8 +1125,6 @@ class _WongojiEditorState extends State<WongojiEditor> {
   }
 
   void _updateGrid() {
-    if (_isInternalUpdate) return;
-    
     String text = _controller.text;
     int cursorPos = _controller.selection.baseOffset;
     if (cursorPos < 0) cursorPos = text.length; 
@@ -294,37 +1138,22 @@ class _WongojiEditorState extends State<WongojiEditor> {
     
     int cellIndex = 1; 
     bool isHalfFull = false; 
-
-    bool needsTextUpdate = false;
-    StringBuffer newTextBuffer = StringBuffer();
-    int newCursorPos = cursorPos;
     List<int> newPageBreakIndices = [];
 
     void triggerPageBreak(int i) {
        newPages.add(currentPage);
        currentPage = List.generate(200, (index) => "");
        cellIndex -= 200;
-       
-       if (!needsTextUpdate) {
-          if (i < text.length && text[i] == '\n') {
-             newPageBreakIndices.add(newTextBuffer.length);
-          } else {
-             needsTextUpdate = true;
-             newTextBuffer.write('\n'); 
-             newPageBreakIndices.add(newTextBuffer.length - 1);
-             if (i < text.length) newTextBuffer.write(text.substring(i));
-             if (i < cursorPos) newCursorPos++; 
-          }
+       if (!newPageBreakIndices.contains(i)) {
+         newPageBreakIndices.add(i);
        }
     }
 
     for (int i = 0; i < text.length; i++) {
       String char = text[i];
       
-      while (cellIndex >= 200 && !needsTextUpdate) triggerPageBreak(i);
-      if (needsTextUpdate) break;
+      while (cellIndex >= 200) triggerPageBreak(i);
 
-      newTextBuffer.write(char);
       cursorMap.add({"page": newPages.length, "cell": cellIndex});
       
       bool isAlphanumeric = RegExp(r'[a-zA-Z0-9]').hasMatch(char);
@@ -333,11 +1162,11 @@ class _WongojiEditorState extends State<WongojiEditor> {
         if (isHalfFull) {
           cellIndex++;
           isHalfFull = false;
-          while (cellIndex >= 200 && !needsTextUpdate) triggerPageBreak(i + 1);
+          while (cellIndex >= 200) triggerPageBreak(i + 1);
         }
         int currentRow = cellIndex ~/ 20;
         cellIndex = (currentRow + 1) * 20 + 1; 
-        while (cellIndex >= 200 && !needsTextUpdate) triggerPageBreak(i + 1);
+        while (cellIndex >= 200) triggerPageBreak(i + 1);
         continue;
       }
 
@@ -345,7 +1174,7 @@ class _WongojiEditorState extends State<WongojiEditor> {
         if (isHalfFull) {
           cellIndex++;
           isHalfFull = false;
-          while (cellIndex >= 200 && !needsTextUpdate) triggerPageBreak(i + 1);
+          while (cellIndex >= 200) triggerPageBreak(i + 1);
         }
         if (cellIndex % 20 != 0) {
           currentPage[cellIndex] = char;
@@ -367,30 +1196,14 @@ class _WongojiEditorState extends State<WongojiEditor> {
         if (isHalfFull) {
           cellIndex++;
           isHalfFull = false;
-          while (cellIndex >= 200 && !needsTextUpdate) triggerPageBreak(i + 1);
+          while (cellIndex >= 200) triggerPageBreak(i + 1);
         }
         currentPage[cellIndex] = char;
         cellIndex++;
       }
     }
     
-    if (needsTextUpdate) {
-       _isInternalUpdate = true;
-       _controller.pageBreakIndices = newPageBreakIndices;
-       _controller.value = TextEditingValue(
-         text: newTextBuffer.toString(),
-         selection: TextSelection.collapsed(offset: newCursorPos),
-       );
-       _isInternalUpdate = false;
-       WidgetsBinding.instance.addPostFrameCallback((_) { _updateGrid(); });
-       return; 
-    }
-    
-    while (cellIndex >= 200) {
-       newPages.add(currentPage);
-       currentPage = List.generate(200, (index) => "");
-       cellIndex -= 200;
-    }
+    while (cellIndex >= 200) triggerPageBreak(text.length);
     
     cursorMap.add({"page": newPages.length, "cell": cellIndex});
     newPages.add(currentPage);
@@ -523,7 +1336,7 @@ class _WongojiEditorState extends State<WongojiEditor> {
                 dotY: _dotY,
                 dotColor: dotColor,
                 isZoomedOut: _isZoomedOut,
-                selectedFont: _selectedFont, // Passing font state
+                selectedFont: _selectedFont, 
               ),
             ),
           ),
@@ -534,11 +1347,15 @@ class _WongojiEditorState extends State<WongojiEditor> {
 
   @override
   Widget build(BuildContext context) {
-    _controller.currentFont = _selectedFont; // Update the editor's text style dynamically
+    _controller.currentFont = _selectedFont; 
 
     return Scaffold(
       backgroundColor: appBgColor,
       appBar: AppBar(
+        leading: IconButton(
+          icon: Icon(Icons.arrow_back_ios_new, color: appBarTextColor, size: 20),
+          onPressed: _saveAndClose,
+        ),
         title: Row(
           children: [
             Text("Wongoji ", style: TextStyle(color: appBarTextColor, fontWeight: FontWeight.bold)),
@@ -552,20 +1369,6 @@ class _WongojiEditorState extends State<WongojiEditor> {
         elevation: 1,
         actions: [
           _buildTooltip(
-            message: "서체 변경",
-            child: PopupMenuButton<String>(
-              icon: Icon(Icons.font_download_outlined, color: appBarTextColor),
-              onSelected: (value) {
-                setState(() { _selectedFont = value; });
-              },
-              itemBuilder: (context) => [
-                const PopupMenuItem(value: 'myeongjo', child: Text("명조체 (기본)")),
-                const PopupMenuItem(value: 'gothic', child: Text("고딕체")),
-                const PopupMenuItem(value: 'pen', child: Text("손글씨 (Nanum Pen Script)")),
-              ],
-            ),
-          ),
-          _buildTooltip(
             message: "테마 변경",
             child: IconButton(
               icon: Icon(
@@ -573,20 +1376,6 @@ class _WongojiEditorState extends State<WongojiEditor> {
               ),
               color: appBarTextColor,
               onPressed: _cycleTheme,
-            ),
-          ),
-          _buildTooltip(
-            message: "내보내기 및 공유",
-            child: PopupMenuButton<String>(
-              icon: Icon(Icons.ios_share, color: appBarTextColor),
-              onSelected: (value) {
-                if (value == 'copy') _copyToClipboard();
-                if (value == 'pdf') _exportToPDF();
-              },
-              itemBuilder: (context) => [
-                const PopupMenuItem(value: 'copy', child: Text("클립보드로 복사")),
-                const PopupMenuItem(value: 'pdf', child: Text("PDF로 내보내기")),
-              ],
             ),
           ),
           _buildTooltip(
@@ -598,7 +1387,52 @@ class _WongojiEditorState extends State<WongojiEditor> {
                 setState(() { _isZoomedOut = !_isZoomedOut; });
               },
             ),
-          )
+          ),
+          _buildTooltip(
+            message: "설정",
+            child: PopupMenuButton<String>(
+              tooltip: '', 
+              icon: Icon(Icons.menu, color: appBarTextColor), 
+              color: appBarBgColor,
+              onSelected: (value) {
+                if (value == 'font') _showFontDialog();
+                if (value == 'copy') _copyToClipboard();
+                if (value == 'pdf') _exportToPDF();
+              },
+              itemBuilder: (context) => [
+                PopupMenuItem(
+                  value: 'font',
+                  child: Row(
+                    children: [
+                      Icon(Icons.font_download_outlined, color: appBarTextColor, size: 20),
+                      const SizedBox(width: 12),
+                      Text("글꼴 변경", style: TextStyle(color: appBarTextColor)),
+                    ],
+                  ),
+                ),
+                PopupMenuItem(
+                  value: 'copy',
+                  child: Row(
+                    children: [
+                      Icon(Icons.copy, color: appBarTextColor, size: 20),
+                      const SizedBox(width: 12),
+                      Text("클립보드로 복사", style: TextStyle(color: appBarTextColor)),
+                    ],
+                  ),
+                ),
+                PopupMenuItem(
+                  value: 'pdf',
+                  child: Row(
+                    children: [
+                      Icon(Icons.picture_as_pdf_outlined, color: appBarTextColor, size: 20),
+                      const SizedBox(width: 12),
+                      Text("PDF로 내보내기", style: TextStyle(color: appBarTextColor)),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
         ],
       ),
       body: LayoutBuilder(
@@ -785,13 +1619,14 @@ class WongojiPainter extends CustomPainter {
           TextStyle getTextStyle() {
             double fontSize = 15 * scale;
             FontWeight weight = isZoomedOut ? FontWeight.w700 : FontWeight.w500;
+            final fallback = const ['Apple SD Gothic Neo', 'Malgun Gothic', 'sans-serif'];
             
             if (selectedFont == 'pen') {
-               return GoogleFonts.nanumPenScript(fontSize: fontSize * 1.3, color: textColor, fontWeight: weight);
+               return GoogleFonts.nanumPenScript(fontSize: fontSize * 1.3, color: textColor, fontWeight: weight).copyWith(fontFamilyFallback: fallback);
             } else if (selectedFont == 'gothic') {
-               return GoogleFonts.nanumGothic(fontSize: fontSize, color: textColor, fontWeight: weight);
+               return GoogleFonts.nanumGothic(fontSize: fontSize, color: textColor, fontWeight: weight).copyWith(fontFamilyFallback: fallback);
             }
-            return GoogleFonts.nanumMyeongjo(fontSize: fontSize, color: textColor, fontWeight: weight);
+            return GoogleFonts.nanumMyeongjo(fontSize: fontSize, color: textColor, fontWeight: weight).copyWith(fontFamilyFallback: fallback);
           }
 
           TextSpan span = TextSpan(style: getTextStyle(), text: char);
