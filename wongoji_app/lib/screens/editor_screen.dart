@@ -22,7 +22,12 @@ class WongojiEditor extends StatefulWidget {
 class _WongojiEditorState extends State<WongojiEditor> {
   final WongojiTextEditingController _controller = WongojiTextEditingController();
   final TextEditingController _titleController = TextEditingController(); 
+  
+  // 👉 NEW: Dual Scroll Controllers for 2-way Sync
   final ScrollController _scrollController = ScrollController();
+  final ScrollController _editorScrollController = ScrollController();
+  bool _isSyncingPaper = false;
+  bool _isSyncingEditor = false;
   
   List<List<String>> _pages = [List.generate(200, (index) => "")];
   List<DateTime> _pageDates = [DateTime.now()]; 
@@ -31,6 +36,7 @@ class _WongojiEditorState extends State<WongojiEditor> {
   int _themeMode = 0; 
   String _selectedFont = 'myeongjo'; 
   int _targetLength = 0;
+  int _targetPageIndex = 0; // 👉 NEW: Tracks dynamic target page
 
   int _charsWithSpace = 0;
   int _charsWithoutSpace = 0;
@@ -53,7 +59,6 @@ class _WongojiEditorState extends State<WongojiEditor> {
   final double _marginHorizontal = 40.0;
   final double _pageSpacing = 30.0;
 
-  // Fully Restored Hint Library
   final List<String> _hintLibrary = [
     "\"글쓰기는 자신의 삶을 가꾸는 일이다.\" — 이오덕",
     "\"글은 곧 그 사람이다.\" — 신채호",
@@ -102,6 +107,25 @@ class _WongojiEditorState extends State<WongojiEditor> {
     
     WidgetsBinding.instance.addPostFrameCallback((_) { _updateGrid(); });
 
+    // 👉 NEW: 2-way Proportional Sync Listeners
+    _scrollController.addListener(() {
+      if (_isSyncingEditor || !_scrollController.hasClients || !_editorScrollController.hasClients) return;
+      if (_scrollController.position.maxScrollExtent <= 0) return;
+      _isSyncingPaper = true;
+      double percentage = _scrollController.offset / _scrollController.position.maxScrollExtent;
+      _editorScrollController.jumpTo(percentage * _editorScrollController.position.maxScrollExtent);
+      _isSyncingPaper = false;
+    });
+
+    _editorScrollController.addListener(() {
+      if (_isSyncingPaper || !_scrollController.hasClients || !_editorScrollController.hasClients) return;
+      if (_editorScrollController.position.maxScrollExtent <= 0) return;
+      _isSyncingEditor = true;
+      double percentage = _editorScrollController.offset / _editorScrollController.position.maxScrollExtent;
+      _scrollController.jumpTo(percentage * _scrollController.position.maxScrollExtent);
+      _isSyncingEditor = false;
+    });
+
     _cursorTimer = Timer.periodic(const Duration(milliseconds: 1000), (timer) {
       if (!_isZoomedOut && !_isTyping) {
         setState(() {
@@ -130,6 +154,7 @@ class _WongojiEditorState extends State<WongojiEditor> {
     _controller.dispose();
     _titleController.dispose();
     _scrollController.dispose();
+    _editorScrollController.dispose(); // Cleanup
     _cursorTimer?.cancel();
     _hideDotTimer?.cancel();
     super.dispose();
@@ -185,110 +210,21 @@ class _WongojiEditorState extends State<WongojiEditor> {
     );
   }
 
-  void _showTargetLengthDialog() {
-    int tempTarget = _targetLength == 0 ? 600 : _targetLength;
-    bool isEnabled = _targetLength > 0;
-    Color themeBlue = const Color(0xFF5C80D1); 
-
-    showDialog(
+  void _showTargetLengthDialog() async {
+    final result = await showDialog<Map<String, dynamic>>(
       context: context,
-      builder: (context) {
-        return StatefulBuilder(
-          builder: (context, setDialogState) {
-            return AlertDialog(
-              backgroundColor: appBarBgColor,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-              title: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text("글자수 제한 켜기", style: GoogleFonts.nanumMyeongjo(color: appBarTextColor, fontWeight: FontWeight.bold)),
-                  Switch(
-                    value: isEnabled,
-                    activeColor: themeBlue,
-                    onChanged: (val) => setDialogState(() => isEnabled = val),
-                  )
-                ],
-              ),
-              content: SizedBox(
-                width: 400,
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.symmetric(vertical: 32),
-                      decoration: BoxDecoration(
-                        color: isEnabled ? themeBlue : Colors.grey.withOpacity(0.2),
-                        border: Border.all(color: Colors.black87, width: 1.0),
-                      ),
-                      child: Text(
-                        isEnabled ? "글자수 제한: $tempTarget 자" : "제한 없음",
-                        textAlign: TextAlign.center,
-                        style: GoogleFonts.nanumGothic(color: isEnabled ? Colors.white : Colors.grey, fontSize: 20)
-                      ),
-                    ),
-                    const SizedBox(height: 32),
-                    SliderTheme(
-                      data: SliderThemeData(
-                        activeTrackColor: themeBlue,
-                        inactiveTrackColor: themeBlue.withOpacity(0.3),
-                        thumbColor: themeBlue,
-                        trackHeight: 12,
-                        thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 16),
-                      ),
-                      child: Slider(
-                        value: tempTarget.toDouble(),
-                        min: 100,
-                        max: 10000,
-                        divisions: 99, 
-                        label: "$tempTarget 자",
-                        onChanged: isEnabled ? (val) => setDialogState(() => tempTarget = val.toInt()) : null,
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                      children: [
-                        _buildQuickButton("+ 500", () => setDialogState(() => tempTarget = min(10000, tempTarget + 500)), isEnabled, themeBlue),
-                        _buildQuickButton("+ 1000", () => setDialogState(() => tempTarget = min(10000, tempTarget + 1000)), isEnabled, themeBlue),
-                        _buildQuickButton("+ 3000", () => setDialogState(() => tempTarget = min(10000, tempTarget + 3000)), isEnabled, themeBlue),
-                      ],
-                    ),
-                    const SizedBox(height: 32),
-                    Text("많은 글쓰기의 글자수제한은 +- 10% 정도의 마진을 둡니다.", style: GoogleFonts.nanumGothic(color: textColor.withOpacity(0.8), fontSize: 13)),
-                  ],
-                ),
-              ),
-              actions: [
-                TextButton(onPressed: () => Navigator.pop(context), child: const Text("취소", style: TextStyle(color: Colors.grey))),
-                TextButton(
-                  onPressed: () {
-                    setState(() => _targetLength = isEnabled ? tempTarget : 0);
-                    Navigator.pop(context);
-                  },
-                  child: Text("확인", style: TextStyle(color: themeBlue, fontWeight: FontWeight.bold)),
-                ),
-              ],
-            );
-          }
-        );
-      }
-    );
-  }
-
-  Widget _buildQuickButton(String label, VoidCallback onTap, bool isEnabled, Color themeBlue) {
-    return InkWell(
-      onTap: isEnabled ? onTap : null,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-        decoration: BoxDecoration(
-          color: isEnabled ? themeBlue : Colors.grey.withOpacity(0.2),
-          borderRadius: BorderRadius.circular(24),
-          border: Border.all(color: Colors.black87, width: 1.0)
-        ),
-        child: Text(label, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+      builder: (context) => CharacterLimitDialog(
+        initialLimit: _targetLength == 0 ? 900 : _targetLength,
+        initialEnabled: _targetLength > 0,
       ),
     );
+
+    if (result != null) {
+      setState(() {
+        _targetLength = result['enabled'] ? result['limit'] as int : 0;
+        _updateGrid(); // Force recalculation of target page
+      });
+    }
   }
 
   Future<void> _exportToPDF() async {
@@ -443,6 +379,21 @@ class _WongojiEditorState extends State<WongojiEditor> {
     if (_pageDates.length > newPages.length) _pageDates = _pageDates.sublist(0, newPages.length);
 
     _controller.pageBreakIndices = newPageBreakIndices;
+    
+    // 👉 NEW: Smart Target Calculation (Accounts for physical line breaks)
+    if (_targetLength > 0) {
+      int currentTargetCell = 0;
+      if (text.length >= _targetLength) {
+        // Find exactly where the Nth character landed
+        currentTargetCell = cursorMap[_targetLength - 1]["cell"]! + (cursorMap[_targetLength - 1]["page"]! * 200);
+      } else {
+        // Project forward 1:1 for remaining characters
+        int lastCell = cursorMap.isNotEmpty ? cursorMap.last["cell"]! + (cursorMap.last["page"]! * 200) : 0;
+        currentTargetCell = lastCell + (_targetLength - text.length);
+      }
+      _targetPageIndex = max(0, (currentTargetCell - 1) ~/ 200);
+    }
+
     _isTyping = true;
     _hideDotTimer?.cancel();
     _hideDotTimer = Timer(const Duration(milliseconds: 300), () { if (mounted) setState(() { _isTyping = false; }); });
@@ -491,7 +442,8 @@ class _WongojiEditorState extends State<WongojiEditor> {
             ),
           ),
           
-          if (_targetLength > 0 && pageIndex == max(0, (_targetLength - 1) ~/ 200))
+          // 👉 NEW: Target limit now uses dynamically calculated physical page
+          if (_targetLength > 0 && pageIndex == _targetPageIndex)
              Positioned(
                top: (_marginTop - 22) * scale, right: (_marginHorizontal + 70) * scale,
                child: Text(
@@ -522,7 +474,7 @@ class _WongojiEditorState extends State<WongojiEditor> {
                 dotColor: dotColor, 
                 isZoomedOut: _isZoomedOut, 
                 selectedFont: _selectedFont,
-                pageIndex: pageIndex,           
+                pageIndex: pageIndex,            
                 targetLength: _targetLength,    
               )
             ),
@@ -596,7 +548,10 @@ class _WongojiEditorState extends State<WongojiEditor> {
                     children: [
                       TextField(controller: _titleController, style: _selectedFont == 'pen' ? GoogleFonts.nanumPenScript(fontSize: 28, color: textColor) : (_selectedFont == 'gothic' ? GoogleFonts.nanumGothic(fontSize: 22, fontWeight: FontWeight.bold, color: textColor) : GoogleFonts.nanumMyeongjo(fontSize: 22, fontWeight: FontWeight.bold, color: textColor)), decoration: InputDecoration(border: InputBorder.none, hintText: "제목", hintStyle: GoogleFonts.nanumMyeongjo(color: textColor.withOpacity(0.3), fontWeight: FontWeight.bold))),
                       Divider(color: lineColor.withOpacity(0.2)),
-                      Expanded(child: TextField(controller: _controller, maxLines: null, minLines: null, expands: true, autofocus: true, style: _selectedFont == 'pen' ? GoogleFonts.nanumPenScript(fontSize: 23, color: textColor, height: 1.5) : (_selectedFont == 'gothic' ? GoogleFonts.nanumGothic(fontSize: 17, color: textColor, height: 1.8) : GoogleFonts.nanumMyeongjo(fontSize: 18, color: textColor, height: 1.8)), decoration: InputDecoration(border: InputBorder.none, hintText: _randomHint, hintStyle: GoogleFonts.nanumMyeongjo(color: textColor.withOpacity(0.3))))),
+                      Expanded(
+                        // 👉 NEW: TextField attached to the secondary scroll controller
+                        child: TextField(controller: _controller, scrollController: _editorScrollController, maxLines: null, minLines: null, expands: true, autofocus: true, style: _selectedFont == 'pen' ? GoogleFonts.nanumPenScript(fontSize: 23, color: textColor, height: 1.5) : (_selectedFont == 'gothic' ? GoogleFonts.nanumGothic(fontSize: 17, color: textColor, height: 1.8) : GoogleFonts.nanumMyeongjo(fontSize: 18, color: textColor, height: 1.8)), decoration: InputDecoration(border: InputBorder.none, hintText: _randomHint, hintStyle: GoogleFonts.nanumMyeongjo(color: textColor.withOpacity(0.3))))
+                      ),
                     ],
                   ),
                 ),
@@ -604,6 +559,195 @@ class _WongojiEditorState extends State<WongojiEditor> {
             ],
           );
         }
+      ),
+    );
+  }
+}
+
+class CharacterLimitDialog extends StatefulWidget {
+  final int initialLimit;
+  final bool initialEnabled;
+
+  const CharacterLimitDialog({
+    Key? key,
+    this.initialLimit = 900,
+    this.initialEnabled = true,
+  }) : super(key: key);
+
+  @override
+  State<CharacterLimitDialog> createState() => _CharacterLimitDialogState();
+}
+
+class _CharacterLimitDialogState extends State<CharacterLimitDialog> {
+  late bool _isEnabled;
+  late double _currentLimit;
+
+  final Color wongojiRed = const Color(0xFFE57373);
+  final Color wongojiDarkRed = const Color(0xFFD32F2F);
+  final Color wongojiBg = const Color(0xFFFDF6E3);
+  final Color wongojiText = const Color(0xFF4A4A4A);
+
+  @override
+  void initState() {
+    super.initState();
+    _isEnabled = widget.initialEnabled;
+    _currentLimit = widget.initialLimit.toDouble();
+  }
+
+  void _addLimit(int amount) {
+    setState(() {
+      _currentLimit += amount;
+      if (_currentLimit > 10000) _currentLimit = 10000;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      backgroundColor: wongojiBg,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(4.0),
+        side: BorderSide(color: wongojiRed.withOpacity(0.5), width: 1),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(28.0),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  "글자수 제한 켜기",
+                  style: GoogleFonts.nanumMyeongjo(
+                    fontSize: 22,
+                    fontWeight: FontWeight.bold,
+                    color: wongojiText,
+                  ),
+                ),
+                Switch(
+                  value: _isEnabled,
+                  onChanged: (val) => setState(() => _isEnabled = val),
+                  activeColor: wongojiRed,
+                  activeTrackColor: wongojiRed.withOpacity(0.3),
+                  inactiveThumbColor: Colors.grey.shade400,
+                  inactiveTrackColor: Colors.grey.shade300,
+                ),
+              ],
+            ),
+            const SizedBox(height: 24),
+            Container(
+              padding: const EdgeInsets.symmetric(vertical: 24),
+              decoration: BoxDecoration(
+                color: _isEnabled ? Colors.white.withOpacity(0.7) : Colors.transparent,
+                border: Border.all(
+                  color: _isEnabled ? wongojiRed : Colors.grey.shade400, 
+                  width: 1.5
+                ),
+              ),
+              child: Center(
+                child: Text(
+                  "글자수 제한: ${_currentLimit.toInt()} 자",
+                  style: GoogleFonts.nanumMyeongjo(
+                    fontSize: 24,
+                    color: _isEnabled ? wongojiDarkRed : Colors.grey.shade500,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 32),
+            SliderTheme(
+              data: SliderThemeData(
+                activeTrackColor: wongojiRed,
+                inactiveTrackColor: wongojiRed.withOpacity(0.2),
+                thumbColor: wongojiRed,
+                overlayColor: wongojiRed.withOpacity(0.1),
+                trackHeight: 2.0,
+              ),
+              child: Slider(
+                value: _currentLimit,
+                min: 100,
+                max: 5000, 
+                divisions: 49,
+                onChanged: _isEnabled
+                    ? (val) => setState(() => _currentLimit = val)
+                    : null,
+              ),
+            ),
+            const SizedBox(height: 24),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              children: [
+                _buildAddButton(500),
+                _buildAddButton(1000),
+                _buildAddButton(3000),
+              ],
+            ),
+            const SizedBox(height: 32),
+            Text(
+              "많은 글쓰기의 글자수제한은 +- 10% 정도의 마진을 둡니다.",
+              textAlign: TextAlign.center,
+              style: GoogleFonts.nanumMyeongjo(
+                fontSize: 13,
+                color: Colors.grey.shade500,
+              ),
+            ),
+            const SizedBox(height: 32),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: Text(
+                    "취소",
+                    style: GoogleFonts.nanumMyeongjo(
+                      color: Colors.grey.shade600,
+                      fontSize: 16,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 16),
+                TextButton(
+                  onPressed: () {
+                    Navigator.pop(context, {
+                      'enabled': _isEnabled,
+                      'limit': _currentLimit.toInt(),
+                    });
+                  },
+                  child: Text(
+                    "확인",
+                    style: GoogleFonts.nanumMyeongjo(
+                      color: wongojiDarkRed,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 16,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildAddButton(int amount) {
+    return OutlinedButton(
+      onPressed: _isEnabled ? () => _addLimit(amount) : null,
+      style: OutlinedButton.styleFrom(
+        foregroundColor: wongojiDarkRed,
+        backgroundColor: _isEnabled ? Colors.white.withOpacity(0.5) : Colors.transparent,
+        side: BorderSide(
+          color: _isEnabled ? wongojiRed.withOpacity(0.6) : Colors.grey.shade300,
+        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(2)),
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+      ),
+      child: Text(
+        "+ $amount",
+        style: GoogleFonts.nanumMyeongjo(fontWeight: FontWeight.bold, fontSize: 16),
       ),
     );
   }
