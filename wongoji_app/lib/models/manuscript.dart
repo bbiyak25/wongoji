@@ -1,4 +1,25 @@
-// Convert Manuscript to Firestore format
+class Manuscript {
+  String id;
+  String title;
+  String content;
+  String font;
+  DateTime lastModified;
+  int pageCount;
+  int targetLength;
+  DateTime? deletedAt;
+
+  Manuscript({
+    required this.id,
+    this.title = '',
+    this.content = '',
+    this.font = 'myeongjo',
+    required this.lastModified,
+    this.pageCount = 1,
+    this.targetLength = 0,
+    this.deletedAt,
+  });
+
+  // Convert Manuscript to Firestore format
   Map<String, dynamic> toMap() {
     return {
       'id': id,
@@ -24,3 +45,4 @@
       targetLength: map['targetLength'] ?? 0,
     )..deletedAt = map['deletedAt'] != null ? DateTime.tryParse(map['deletedAt']) : null;
   }
+}

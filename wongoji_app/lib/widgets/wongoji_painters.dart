@@ -147,7 +147,32 @@ class WongojiPainter extends CustomPainter {
 
           TextSpan span = TextSpan(style: getTextStyle(), text: char);
           TextPainter tp = TextPainter(text: span, textAlign: TextAlign.center, textDirection: TextDirection.ltr)..layout();
-          tp.paint(canvas, Offset(x + (cellDim - tp.width) / 2, y + (cellDim - tp.height) / 2));
+          
+          // 👉 NEW: Relative mathematical alignment for punctuation
+          double padding = 4.0 * scale; 
+          double offsetX;
+          double offsetY;
+
+          if (char == '.' || char == ',') {
+            // Bottom Left
+            offsetX = padding;
+            offsetY = cellDim - tp.height - padding;
+          } else if (['“', '‘', '(', '<', '《', '「', '『'].contains(char)) {
+            // Top Right
+            offsetX = cellDim - tp.width - padding;
+            offsetY = padding;
+          } else if (['”', '’', ')', '>', '》', '」', '』'].contains(char)) {
+            // Top Left
+            offsetX = padding;
+            offsetY = padding;
+          } else {
+            // Center
+            offsetX = (cellDim - tp.width) / 2;
+            offsetY = (cellDim - tp.height) / 2;
+          }
+
+          // Paint using the base cell coordinates + the relative offset
+          tp.paint(canvas, Offset(x + offsetX, y + offsetY));
         }
 
         // Focus Dot

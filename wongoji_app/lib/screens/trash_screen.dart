@@ -26,14 +26,14 @@ class _TrashBinScreenState extends State<TrashBinScreen> {
         .collection('manuscripts');
   }
 
-  // 👉 RESTORE: Removes the 'deletedAt' timestamp so it pops back into the main notebook
+  // RESTORE: Removes the 'deletedAt' timestamp so it pops back into the main notebook
   Future<void> _restoreDocument(Manuscript doc) async {
     await _manuscriptsRef.doc(doc.id).update({
       'deletedAt': FieldValue.delete(), 
     });
   }
 
-  // 👉 HARD DELETE: Erases the document from the cloud forever
+  // HARD DELETE: Erases the document from the cloud forever
   Future<void> _permanentDelete(String docId) async {
     await _manuscriptsRef.doc(docId).delete();
   }
@@ -49,14 +49,17 @@ class _TrashBinScreenState extends State<TrashBinScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // 👉 NEW: Direct Universal Theme Wiring
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
     return Scaffold(
-      backgroundColor: const Color(0xFFF5F5F7),
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       appBar: AppBar(
-        title: const Text('휴지통', style: TextStyle(color: Colors.black)),
-        backgroundColor: Colors.white,
+        title: Text('휴지통', style: TextStyle(color: isDark ? Colors.white : Colors.black)),
+        backgroundColor: Theme.of(context).appBarTheme.backgroundColor,
         elevation: 0,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios_new, color: Colors.black87, size: 20),
+          icon: Icon(Icons.arrow_back_ios_new, color: isDark ? Colors.white : Colors.black87, size: 20),
           onPressed: () => Navigator.pop(context),
         ),
       ),
@@ -87,7 +90,7 @@ class _TrashBinScreenState extends State<TrashBinScreen> {
 
           if (trashDocs.isEmpty) {
             return Center(
-              child: Text("휴지통이 비어 있습니다.", style: GoogleFonts.nanumMyeongjo(fontSize: 18, color: Colors.grey.shade500)),
+              child: Text("휴지통이 비어 있습니다.", style: GoogleFonts.nanumMyeongjo(fontSize: 18, color: isDark ? Colors.white54 : Colors.grey.shade500)),
             );
           }
 
@@ -99,7 +102,7 @@ class _TrashBinScreenState extends State<TrashBinScreen> {
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Text("휴지통", style: GoogleFonts.nanumMyeongjo(fontSize: 28, fontWeight: FontWeight.bold, color: Colors.black87)),
+                    Text("휴지통", style: GoogleFonts.nanumMyeongjo(fontSize: 28, fontWeight: FontWeight.bold, color: isDark ? Colors.white : Colors.black87)),
                     TextButton.icon(
                       onPressed: () => _emptyTrash(trashDocs),
                       icon: const Icon(Icons.delete_forever, color: Colors.redAccent),
@@ -108,7 +111,7 @@ class _TrashBinScreenState extends State<TrashBinScreen> {
                   ],
                 ),
                 const SizedBox(height: 10),
-                Text("휴지통에 있는 항목은 3일 후 영구 삭제됩니다.", style: GoogleFonts.nanumMyeongjo(color: Colors.grey.shade600)),
+                Text("휴지통에 있는 항목은 3일 후 영구 삭제됩니다.", style: GoogleFonts.nanumMyeongjo(color: isDark ? Colors.white54 : Colors.grey.shade600)),
                 const SizedBox(height: 30),
                 Expanded(
                   child: ListView.builder(
@@ -121,19 +124,20 @@ class _TrashBinScreenState extends State<TrashBinScreen> {
                       return Card(
                         margin: const EdgeInsets.only(bottom: 16),
                         elevation: 0,
+                        color: Theme.of(context).cardColor,
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(8),
-                          side: BorderSide(color: Colors.grey.shade300)
+                          side: BorderSide(color: Theme.of(context).dividerColor)
                         ),
                         child: ListTile(
                           contentPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                          title: Text(doc.title.isEmpty ? "제목 없음" : doc.title, style: GoogleFonts.nanumMyeongjo(fontWeight: FontWeight.bold, fontSize: 18)),
+                          title: Text(doc.title.isEmpty ? "제목 없음" : doc.title, style: GoogleFonts.nanumMyeongjo(color: isDark ? Colors.white : Colors.black87, fontWeight: FontWeight.bold, fontSize: 18)),
                           subtitle: Text("삭제까지 $daysLeft일 남음", style: GoogleFonts.nanumMyeongjo(color: Colors.redAccent, fontSize: 13)),
                           trailing: Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
                               IconButton(
-                                icon: const Icon(Icons.restore, color: Colors.blueGrey),
+                                icon: Icon(Icons.restore, color: isDark ? Colors.white54 : Colors.blueGrey),
                                 tooltip: "복원하기",
                                 onPressed: () => _restoreDocument(doc),
                               ),

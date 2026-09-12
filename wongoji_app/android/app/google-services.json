@@ -1,0 +1,39 @@
+{
+  "project_info": {
+    "project_number": "1017624062769",
+    "project_id": "wongoji-559ce",
+    "storage_bucket": "wongoji-559ce.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1017624062769:android:19b3a4263c671f98ef1e10",
+        "android_client_info": {
+          "package_name": "com.example.wongoji_app"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "1017624062769-hri7rjglsc064q325f97m1a38ogcqmu7.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAOtI02ZP1mG6fd9A6MWenAWBFDA70da9I"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "1017624062769-hri7rjglsc064q325f97m1a38ogcqmu7.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
