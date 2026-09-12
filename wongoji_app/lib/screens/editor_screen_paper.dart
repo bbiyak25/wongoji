@@ -30,6 +30,12 @@ class _WongojiEditorPaperState extends State<WongojiEditorPaper> {
   final TextEditingController _titleController = TextEditingController(); 
   final ScrollController _scrollController = ScrollController();
   
+  // 👉 GOD MODE: New Variables for the Split Screen
+  final ScrollController _editorScrollController = ScrollController();
+  bool _isSplitMode = false;
+  double _editorWidth = 340.0;
+  late String _randomHint;
+  
   List<List<String>> _pages = [List.generate(200, (index) => "")];
   List<DateTime> _pageDates = [DateTime.now()]; 
   
@@ -61,9 +67,33 @@ class _WongojiEditorPaperState extends State<WongojiEditorPaper> {
   final double _marginHorizontal = 40.0;
   final double _pageSpacing = 30.0;
 
+  final List<String> _hintLibrary = [
+    "\"글쓰기는 자신의 삶을 가꾸는 일이다.\" — 이오덕",
+    "\"글은 곧 그 사람이다.\" — 신채호",
+    "\"글을 쓴다는 것은 자기 자신을 온전히 대면하는 일이다.\" — 박완서",
+    "\"글쓰기는 우리 자신으로부터도 보리를 해방시킵니다. 왜냐하면 글을 쓰는 동안 우리 자신이 변하기 때문입니다.\" — 김영하",
+    "\"진실하게 쓰라. 너의 아픔을 숨기지 말고, 너의 기쁨을 과장하지 말라.\" — 박경리",
+    "\"많이 읽고, 많이 쓰고, 많이 생각하라(삼다·三多).\" — 다산 정약용",
+    "\"말하듯이 쓰라. 좋은 글은 읽을 때 말하는 것처럼 자연스럽게 흘러가야 한다.\" — 유시민",
+    "\"문학을 좋아하고 시를 사랑한다는 것은 마음속에 사랑이 있다는 증거다.\" — 박목월",
+    "\"글을 쓸 때는 생각이 가슴속에 꽉 차올라 넘칠 때까지 기다려야 한다. 억지로 짜낸 글은 생명력이 없다.\" — 이황(李滉)",
+    "\"문장은 한 번에 이루어지지 않는다. 깎고 다듬는 고통을 거쳐야 비로소 보배로운 글이 된다.\"",
+    "조용히 나 자신과 마주하는 시간",
+    "기록하지 않은 기억은 흩어집니다.",
+    "어떤 이야기든 좋아요. 천천히 적어보세요.",
+    "망설이지 말고 첫 단어를 적어보세요.",
+    "오늘은 무슨 생각이 들었나요?",
+    "마음을 달래줄 따뜻한 문장을 적어보세요.",
+    "당신의 글을 담고 싶습니다.",
+    "언어의 바다는 넓고도 깊습니다.",
+    "거창하지 않아도 아름답습니다.",
+    "문장과 문장 사이, 당신의 숨결이 스며듭니다."
+  ];
+
   @override
   void initState() {
     super.initState();
+    _randomHint = _hintLibrary[Random().nextInt(_hintLibrary.length)];
     _titleController.text = widget.initialDocument.title;
     _controller.text = widget.initialDocument.content;
     _selectedFont = widget.initialDocument.font;
@@ -87,34 +117,31 @@ class _WongojiEditorPaperState extends State<WongojiEditorPaper> {
           }
           
           if (isOccupied) {
-            // 👉 FIX: Roll a 4-sided dice to pick a random corner!
             int corner = Random().nextInt(4);
             switch (corner) {
-              case 0: // Top-Left
+              case 0: 
                 _dotX = 0.05 + (Random().nextDouble() * 0.2);
                 _dotY = 0.05 + (Random().nextDouble() * 0.2);
                 break;
-              case 1: // Top-Right
+              case 1: 
                 _dotX = 0.75 + (Random().nextDouble() * 0.2);
                 _dotY = 0.05 + (Random().nextDouble() * 0.2);
                 break;
-              case 2: // Bottom-Left
+              case 2: 
                 _dotX = 0.05 + (Random().nextDouble() * 0.2);
                 _dotY = 0.75 + (Random().nextDouble() * 0.2);
                 break;
-              case 3: // Bottom-Right
+              case 3: 
                 _dotX = 0.75 + (Random().nextDouble() * 0.2);
                 _dotY = 0.75 + (Random().nextDouble() * 0.2);
                 break;
             }
           } else {
-            // Wander freely in empty cells
             _dotX = 0.2 + (Random().nextDouble() * 0.6); 
             _dotY = 0.2 + (Random().nextDouble() * 0.6); 
           }
         });
 
-        // Blinks off halfway through
         Timer(const Duration(milliseconds: 500), () {
           if (mounted) setState(() { _isDotVisible = false; });
         });
@@ -128,6 +155,7 @@ class _WongojiEditorPaperState extends State<WongojiEditorPaper> {
     _controller.dispose();
     _titleController.dispose();
     _scrollController.dispose();
+    _editorScrollController.dispose();
     _cursorTimer?.cancel();
     _hideDotTimer?.cancel();
     super.dispose();
@@ -189,7 +217,7 @@ class _WongojiEditorPaperState extends State<WongojiEditorPaper> {
     );
   }
 
-void _showTargetLengthDialog() async {
+  void _showTargetLengthDialog() async {
     final result = await showDialog<Map<String, dynamic>>(
       context: context,
       builder: (context) => CharacterLimitDialog(
@@ -205,6 +233,7 @@ void _showTargetLengthDialog() async {
       });
     }
   }
+
   void _exportToPDF() async {
     String fileName = _titleController.text.trim();
     if (fileName.isEmpty) {
@@ -309,23 +338,20 @@ void _showTargetLengthDialog() async {
     return Tooltip(message: message, decoration: BoxDecoration(color: Colors.white, border: Border.all(color: const Color(0xFF767676), width: 1.0)), textStyle: const TextStyle(color: Colors.black, fontSize: 12), preferBelow: true, verticalOffset: 24, waitDuration: const Duration(milliseconds: 300), child: child);
   }
 
-  // 👉 FIX 1: Mathematics to track the cursor's Y-position and auto-scroll
   void _scrollToCursor() {
     if (!_scrollController.hasClients || _isZoomedOut) return;
 
     double exactPageHeight = (_cellDim * 10) + (_rowGap * 9) + _marginTop + _marginBottom;
-    double titleHeaderHeight = 120.0; 
+    double titleHeaderHeight = _isSplitMode ? 0.0 : 120.0; 
     
     int row = _activeCellIndex ~/ 20;
     
-    // Calculates the absolute Y pixel of the top and bottom of the active cell
     double cellTopY = titleHeaderHeight + (_activePageIndex * (exactPageHeight + _pageSpacing)) + _marginTop + (row * (_cellDim + _rowGap));
     double cellBottomY = cellTopY + _cellDim;
 
     double viewportTop = _scrollController.offset;
     double viewportBottom = viewportTop + _scrollController.position.viewportDimension;
 
-    // Trigger auto-scroll if the cell drops below or above the visible browser window bounds
     if (cellBottomY > viewportBottom - 40) {
       _scrollController.animateTo(cellBottomY - _scrollController.position.viewportDimension + 80, duration: const Duration(milliseconds: 250), curve: Curves.easeOut);
     } else if (cellTopY < viewportTop + 40) {
@@ -447,7 +473,6 @@ void _showTargetLengthDialog() async {
       }
     });
 
-    // 👉 Trigger the Auto-Scroll calculation exactly one frame after the layout updates
     WidgetsBinding.instance.addPostFrameCallback((_) { 
       _scrollToCursor(); 
     });
@@ -494,7 +519,6 @@ void _showTargetLengthDialog() async {
 
     Color paperColor, lineColor, textColor, dotColor;
     if (themeMode == 0) { 
-      // 👉 FIX 3: True black ink for the light theme dot
       paperColor = Colors.white; lineColor = Colors.redAccent; textColor = const Color(0xFF212121); dotColor = Colors.black87;
     } else if (themeMode == 1) { 
       paperColor = const Color(0xFFBDBDBD); lineColor = const Color(0xFF858585); textColor = const Color(0xFF212121); dotColor = const Color(0xFF555555);
@@ -565,7 +589,81 @@ void _showTargetLengthDialog() async {
     final themeIndex = globalThemeMode.value;
     final isDark = themeIndex == 2;
     final appBarTextColor = Theme.of(context).appBarTheme.iconTheme?.color ?? Colors.black87;
+    final sidePanelBg = Theme.of(context).scaffoldBackgroundColor;
+    final lineColor = isDark ? const Color(0xFF555555) : Colors.redAccent;
     final textColor = isDark ? Colors.white70 : const Color(0xFF212121);
+
+    Widget editorTextField = TextField(
+      focusNode: _hiddenFocusNode,
+      controller: _controller,
+      scrollController: _isSplitMode ? _editorScrollController : null,
+      maxLines: null,
+      minLines: _isSplitMode ? null : 1, 
+      expands: _isSplitMode, 
+      autofocus: true,
+      style: _selectedFont == 'pen' ? GoogleFonts.nanumPenScript(fontSize: 23, color: textColor, height: 1.5) : (_selectedFont == 'gothic' ? GoogleFonts.nanumGothic(fontSize: 17, color: textColor, height: 1.8) : GoogleFonts.nanumMyeongjo(fontSize: 18, color: textColor, height: 1.8)),
+      decoration: InputDecoration(
+        border: InputBorder.none, 
+        hintText: _isSplitMode ? _randomHint : "", 
+        hintStyle: GoogleFonts.nanumMyeongjo(color: textColor.withOpacity(0.3))
+      )
+    );
+
+    Widget paperMainArea = Stack(
+      children: [
+        if (!_isSplitMode)
+          Positioned(
+            left: -1000, 
+            child: Opacity(
+              opacity: 0, 
+              child: SizedBox(width: 10, child: editorTextField)
+            ),
+          ),
+        Positioned.fill(
+          child: GestureDetector(
+            behavior: HitTestBehavior.translucent,
+            onTap: () => _hiddenFocusNode.requestFocus(),
+            child: _isZoomedOut
+                ? GridView.builder(
+                    gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                      crossAxisCount: 3, 
+                      crossAxisSpacing: 40, 
+                      mainAxisSpacing: 40, 
+                      childAspectRatio: 1.45
+                    ), 
+                    itemCount: _pages.length, 
+                    itemBuilder: (context, index) { 
+                      return GestureDetector(
+                        onTap: () => _jumpToPage(index), 
+                        child: Center(
+                          child: FittedBox(
+                            fit: BoxFit.contain, 
+                            child: _buildPage(index, 1.0, themeIndex)
+                          )
+                        )
+                      ); 
+                    }
+                  )
+                : ListView.builder(
+                    controller: _scrollController, 
+                    itemCount: _pages.length + (_isSplitMode ? 0 : 1), 
+                    itemBuilder: (context, index) { 
+                      if (!_isSplitMode && index == 0) return _buildTitleHeader(textColor);
+                      int pageIndex = _isSplitMode ? index : index - 1;
+                      return Center(
+                        child: GestureDetector(
+                          onTapDown: (details) => _handlePaperTapDown(details, pageIndex),
+                          onPanStart: (details) => _handlePaperPanStart(details, pageIndex),
+                          onPanUpdate: (details) => _handlePaperPanUpdate(details, pageIndex),
+                          child: _buildPage(pageIndex, 1.0, themeIndex)
+                        ),
+                      ); 
+                    }
+                  ),
+          ),
+        ),
+      ],
+    );
 
     return Scaffold(
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
@@ -586,13 +684,14 @@ void _showTargetLengthDialog() async {
             child: PopupMenuButton<String>(
               tooltip: '', icon: Icon(Icons.menu, color: appBarTextColor), color: Theme.of(context).cardColor,
               onSelected: (value) { 
-                if (value == 'target') _showTargetLengthDialog(); // 👉 RESTORED
+                if (value == 'split') setState(() { _isSplitMode = !_isSplitMode; }); 
+                if (value == 'target') _showTargetLengthDialog();
                 if (value == 'font') _showFontDialog(isDark); 
                 if (value == 'copy') _copyToClipboard(); 
                 if (value == 'pdf') _exportToPDF(); 
               },
               itemBuilder: (context) => [
-                // 👉 RESTORED
+                PopupMenuItem(value: 'split', child: Row(children: [Icon(Icons.vertical_split, color: appBarTextColor, size: 20), const SizedBox(width: 12), Text(_isSplitMode ? "분할입력창 끄기" : "분할입력창 활성화", style: TextStyle(color: appBarTextColor))])),
                 PopupMenuItem(value: 'target', child: Row(children: [Icon(Icons.track_changes, color: appBarTextColor, size: 20), const SizedBox(width: 12), Text("목표 글자수 설정", style: TextStyle(color: appBarTextColor))])),
                 PopupMenuItem(value: 'font', child: Row(children: [Icon(Icons.font_download_outlined, color: appBarTextColor, size: 20), const SizedBox(width: 12), Text("글꼴 변경", style: TextStyle(color: appBarTextColor))])),
                 PopupMenuItem(value: 'copy', child: Row(children: [Icon(Icons.copy, color: appBarTextColor, size: 20), const SizedBox(width: 12), Text("클립보드로 복사", style: TextStyle(color: appBarTextColor))])),
@@ -602,58 +701,64 @@ void _showTargetLengthDialog() async {
           ),
         ],
       ),
-      body: Stack(
-        children: [
-          Positioned(
-            left: -1000, 
-            child: Opacity(
-              opacity: 0,
-              child: SizedBox(
-                width: 10,
-                child: TextField(
-                  focusNode: _hiddenFocusNode,
-                  controller: _controller,
-                  maxLines: null,
-                  autofocus: true,
-                ),
-              ),
-            ),
-          ),
-          
-          Positioned.fill(
-            child: GestureDetector(
-              behavior: HitTestBehavior.translucent,
-              onTap: () => _hiddenFocusNode.requestFocus(),
-              child: _isZoomedOut
-                  ? GridView.builder(
-                      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: 3, crossAxisSpacing: 40, mainAxisSpacing: 40, childAspectRatio: 1.45), 
-                      itemCount: _pages.length, 
-                      itemBuilder: (context, index) { 
-                        return GestureDetector(
-                          onTap: () => _jumpToPage(index), 
-                          child: Center(child: FittedBox(fit: BoxFit.contain, child: _buildPage(index, 1.0, themeIndex)))
-                        ); 
-                      }
+      body: LayoutBuilder(
+        builder: (context, constraints) {
+          return Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch, 
+            children: [
+              Expanded(child: paperMainArea),
+              if (_isSplitMode && !_isZoomedOut) ...[
+                MouseRegion(
+                  cursor: SystemMouseCursors.resizeLeftRight,
+                  child: GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onPanUpdate: (details) { 
+                      setState(() { 
+                        _editorWidth -= details.delta.dx; 
+                        _editorWidth = _editorWidth.clamp(340.0, max(340.0, constraints.maxWidth - 800.0)); 
+                      }); 
+                    },
+                    child: Container(
+                      width: 12.0, 
+                      color: sidePanelBg, 
+                      child: Center(
+                        child: Container(
+                          width: 2.0, 
+                          height: 40.0, 
+                          decoration: BoxDecoration(
+                            color: lineColor.withOpacity(0.4), 
+                            borderRadius: BorderRadius.circular(2.0)
+                          )
+                        )
+                      )
                     )
-                  : ListView.builder(
-                      controller: _scrollController, 
-                      itemCount: _pages.length + 1, 
-                      itemBuilder: (context, index) { 
-                        if (index == 0) return _buildTitleHeader(textColor);
-                        int pageIndex = index - 1;
-                        return Center(
-                          child: GestureDetector(
-                            onTapDown: (details) => _handlePaperTapDown(details, pageIndex),
-                            onPanStart: (details) => _handlePaperPanStart(details, pageIndex),
-                            onPanUpdate: (details) => _handlePaperPanUpdate(details, pageIndex),
-                            child: _buildPage(pageIndex, 1.0, themeIndex)
-                          ),
-                        ); 
-                      }
-                    ),
-            ),
-          ),
-        ],
+                  )
+                ),
+                Container(
+                  width: _editorWidth, 
+                  color: sidePanelBg, 
+                  padding: const EdgeInsets.only(top: 24.0, right: 24.0, bottom: 24.0, left: 12.0),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      TextField(
+                        controller: _titleController, 
+                        style: _selectedFont == 'pen' ? GoogleFonts.nanumPenScript(fontSize: 28, color: textColor) : (_selectedFont == 'gothic' ? GoogleFonts.nanumGothic(fontSize: 22, fontWeight: FontWeight.bold, color: textColor) : GoogleFonts.nanumMyeongjo(fontSize: 22, fontWeight: FontWeight.bold, color: textColor)), 
+                        decoration: InputDecoration(
+                          border: InputBorder.none, 
+                          hintText: "제목", 
+                          hintStyle: GoogleFonts.nanumMyeongjo(color: textColor.withOpacity(0.3), fontWeight: FontWeight.bold)
+                        )
+                      ),
+                      Divider(color: lineColor.withOpacity(0.2)),
+                      Expanded(child: editorTextField),
+                    ],
+                  ),
+                ),
+              ],
+            ],
+          );
+        }
       ),
     );
   }
@@ -690,22 +795,32 @@ class _CharacterLimitDialogState extends State<CharacterLimitDialog> {
   void _addLimit(int amount) {
     setState(() {
       _currentLimit += amount;
-      if (_currentLimit > 10000) _currentLimit = 10000;
+      
+      _currentLimit = (_currentLimit / 100).round() * 100.0;
+      
+      if (_currentLimit > 5000) {
+        _currentLimit = 5000;
+      } else if (_currentLimit < 100) {
+        _currentLimit = 100;
+      }
     });
   }
 
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final wongojiText = isDark ? Colors.white : const Color(0xFF4A4A4A);
+    final wongojiText = isDark ? Colors.white : const Color(0xFF212121);
+    final subText = isDark ? Colors.white54 : Colors.grey.shade600;
 
     return Dialog(
       backgroundColor: Theme.of(context).cardColor,
+      elevation: 24,
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(4.0),
-        side: BorderSide(color: wongojiRed.withOpacity(0.5), width: 1),
+        borderRadius: BorderRadius.circular(12.0),
+        side: BorderSide(color: isDark ? Colors.white12 : Colors.black.withOpacity(0.05), width: 1),
       ),
-      child: Padding(
+      child: Container(
+        width: 380,
         padding: const EdgeInsets.all(28.0),
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -715,9 +830,9 @@ class _CharacterLimitDialogState extends State<CharacterLimitDialog> {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Text(
-                  "글자수 제한 켜기",
+                  "목표 글자수",
                   style: GoogleFonts.nanumMyeongjo(
-                    fontSize: 22,
+                    fontSize: 20,
                     fontWeight: FontWeight.bold,
                     color: wongojiText,
                   ),
@@ -727,67 +842,64 @@ class _CharacterLimitDialogState extends State<CharacterLimitDialog> {
                   onChanged: (val) => setState(() => _isEnabled = val),
                   activeColor: wongojiRed,
                   activeTrackColor: wongojiRed.withOpacity(0.3),
-                  inactiveThumbColor: Colors.grey.shade400,
-                  inactiveTrackColor: Colors.grey.shade300,
+                  inactiveThumbColor: isDark ? Colors.grey.shade600 : Colors.grey.shade400,
+                  inactiveTrackColor: isDark ? Colors.grey.shade800 : Colors.grey.shade300,
                 ),
               ],
             ),
             const SizedBox(height: 24),
-            Container(
-              padding: const EdgeInsets.symmetric(vertical: 24),
-              decoration: BoxDecoration(
-                color: _isEnabled ? (isDark ? Colors.white12 : Colors.white.withOpacity(0.7)) : Colors.transparent,
-                border: Border.all(
-                  color: _isEnabled ? wongojiRed : (isDark ? Colors.white24 : Colors.grey.shade400), 
-                  width: 1.5
+            Center(
+              child: AnimatedDefaultTextStyle(
+                duration: const Duration(milliseconds: 200),
+                style: GoogleFonts.nanumMyeongjo(
+                  fontSize: 42,
+                  fontWeight: FontWeight.bold,
+                  color: _isEnabled ? wongojiRed : subText.withOpacity(0.5),
                 ),
-              ),
-              child: Center(
-                child: Text(
-                  "글자수 제한: ${_currentLimit.toInt()} 자",
-                  style: GoogleFonts.nanumMyeongjo(
-                    fontSize: 24,
-                    color: _isEnabled ? wongojiRed : Colors.grey.shade500,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
+                child: Text("${_currentLimit.toInt()} 자"),
               ),
             ),
-            const SizedBox(height: 32),
+            const SizedBox(height: 12),
             SliderTheme(
               data: SliderThemeData(
                 activeTrackColor: wongojiRed,
-                inactiveTrackColor: wongojiRed.withOpacity(0.2),
+                inactiveTrackColor: wongojiRed.withOpacity(0.15),
                 thumbColor: wongojiRed,
                 overlayColor: wongojiRed.withOpacity(0.1),
-                trackHeight: 2.0,
+                trackHeight: 4.0,
               ),
               child: Slider(
                 value: _currentLimit,
                 min: 100,
                 max: 5000, 
-                divisions: 49,
                 onChanged: _isEnabled
-                    ? (val) => setState(() => _currentLimit = val)
+                    ? (val) {
+                        setState(() {
+                          _currentLimit = (val / 100).round() * 100.0;
+                        });
+                      }
                     : null,
               ),
             ),
-            const SizedBox(height: 24),
+            const SizedBox(height: 16),
             Row(
-              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 _buildAddButton(500, isDark),
+                const SizedBox(width: 10),
                 _buildAddButton(1000, isDark),
+                const SizedBox(width: 10),
                 _buildAddButton(3000, isDark),
               ],
             ),
             const SizedBox(height: 32),
             Text(
-              "많은 글쓰기의 글자수제한은 +- 10% 정도의 마진을 둡니다.",
+              "공백을 포함한 원고지 칸 수를 기준으로 계산합니다.\n마감 글자수에는 ±10%의 여유가 주어집니다.",
               textAlign: TextAlign.center,
-              style: GoogleFonts.nanumMyeongjo(
-                fontSize: 13,
-                color: Colors.grey.shade500,
+              style: GoogleFonts.nanumGothic(
+                fontSize: 12,
+                height: 1.6,
+                color: subText,
               ),
             ),
             const SizedBox(height: 32),
@@ -796,30 +908,24 @@ class _CharacterLimitDialogState extends State<CharacterLimitDialog> {
               children: [
                 TextButton(
                   onPressed: () => Navigator.pop(context),
-                  child: Text(
-                    "취소",
-                    style: GoogleFonts.nanumMyeongjo(
-                      color: Colors.grey.shade500,
-                      fontSize: 16,
-                    ),
-                  ),
+                  child: Text("취소", style: GoogleFonts.nanumGothic(color: subText, fontSize: 14, fontWeight: FontWeight.bold)),
                 ),
-                const SizedBox(width: 16),
-                TextButton(
+                const SizedBox(width: 12),
+                ElevatedButton(
                   onPressed: () {
                     Navigator.pop(context, {
                       'enabled': _isEnabled,
                       'limit': _currentLimit.toInt(),
                     });
                   },
-                  child: Text(
-                    "확인",
-                    style: GoogleFonts.nanumMyeongjo(
-                      color: wongojiRed,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 16,
-                    ),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: wongojiRed,
+                    foregroundColor: Colors.white,
+                    elevation: 0,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+                    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
                   ),
+                  child: Text("확인", style: GoogleFonts.nanumGothic(fontWeight: FontWeight.bold, fontSize: 14)),
                 ),
               ],
             ),
@@ -830,20 +936,26 @@ class _CharacterLimitDialogState extends State<CharacterLimitDialog> {
   }
 
   Widget _buildAddButton(int amount, bool isDark) {
-    return OutlinedButton(
-      onPressed: _isEnabled ? () => _addLimit(amount) : null,
-      style: OutlinedButton.styleFrom(
-        foregroundColor: wongojiDarkRed,
-        backgroundColor: _isEnabled ? (isDark ? Colors.white12 : Colors.white.withOpacity(0.5)) : Colors.transparent,
-        side: BorderSide(
-          color: _isEnabled ? wongojiRed.withOpacity(0.6) : (isDark ? Colors.white24 : Colors.grey.shade300),
+    return InkWell(
+      onTap: _isEnabled ? () => _addLimit(amount) : null,
+      borderRadius: BorderRadius.circular(6),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        decoration: BoxDecoration(
+          color: _isEnabled ? (isDark ? Colors.white12 : Colors.grey.shade100) : Colors.transparent,
+          borderRadius: BorderRadius.circular(6),
+          border: Border.all(
+            color: _isEnabled ? (isDark ? Colors.white24 : Colors.grey.shade300) : Colors.transparent,
+          ),
         ),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(2)),
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-      ),
-      child: Text(
-        "+ $amount",
-        style: GoogleFonts.nanumMyeongjo(color: isDark ? Colors.white70 : wongojiDarkRed, fontWeight: FontWeight.bold, fontSize: 16),
+        child: Text(
+          "+$amount",
+          style: GoogleFonts.nanumGothic(
+            color: _isEnabled ? (isDark ? Colors.white70 : Colors.black87) : Colors.grey.shade500, 
+            fontWeight: FontWeight.bold, 
+            fontSize: 13
+          ),
+        ),
       ),
     );
   }
