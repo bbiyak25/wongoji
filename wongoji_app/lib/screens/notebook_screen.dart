@@ -4,11 +4,12 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../models/manuscript.dart';
 import '../widgets/document_card.dart';
-import 'editor_screen.dart';
+import 'editor_screen_paper.dart';
 import 'trash_screen.dart';
 import 'profile_screen.dart';
 import '../utils/achievement_manager.dart';
 import '../main.dart'; // To access globalThemeMode
+
 
 class NotebookHomeScreen extends StatefulWidget {
   const NotebookHomeScreen({Key? key}) : super(key: key);
@@ -79,7 +80,9 @@ class _NotebookHomeScreenState extends State<NotebookHomeScreen> {
 
   void _openEditor(List<Manuscript> currentDocs, [Manuscript? doc]) async {
     final targetDoc = doc ?? Manuscript(id: DateTime.now().millisecondsSinceEpoch.toString(), lastModified: DateTime.now());
-    final result = await Navigator.push(context, MaterialPageRoute(builder: (context) => WongojiEditor(initialDocument: targetDoc)));
+    // Change this line:
+    final result = await Navigator.push(context, MaterialPageRoute(builder: (context) => WongojiEditorPaper(initialDocument: targetDoc)));
+    // final result = await Navigator.push(context, MaterialPageRoute(builder: (context) => WongojiEditor(initialDocument: targetDoc)));
 
     if (result != null && result is Manuscript) {
       if (result.title.trim().isEmpty) {

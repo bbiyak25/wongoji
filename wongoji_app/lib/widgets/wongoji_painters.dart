@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'dart:math'; 
 
 class MinimalCoverPainter extends CustomPainter {
   final String title;
@@ -76,6 +77,9 @@ class WongojiPainter extends CustomPainter {
   final int pageIndex;
   final int targetLength;
 
+  final int selectionStart;
+  final int selectionEnd;
+
   WongojiPainter({
     required this.pageData, 
     required this.lineColor, 
@@ -91,6 +95,8 @@ class WongojiPainter extends CustomPainter {
     required this.selectedFont,
     required this.pageIndex,
     required this.targetLength,
+    this.selectionStart = -1, 
+    this.selectionEnd = -1,   
   });
 
   @override
@@ -98,7 +104,7 @@ class WongojiPainter extends CustomPainter {
     final double cellDim = 34.0 * scale;
     final double rowGap = 12.0 * scale;
 
-    // 1. PRE-PASS: Draw the ±10% Highlighter Safe Zone UNDER the grid
+    // 1. PRE-PASS A: Highlighter Safe Zone
     if (targetLength > 0) {
       int minSafe = (targetLength * 0.9).floor();
       int maxSafe = (targetLength * 1.1).ceil();
@@ -112,6 +118,27 @@ class WongojiPainter extends CustomPainter {
           
           if (absoluteIndex >= minSafe && absoluteIndex <= maxSafe) {
             canvas.drawRect(Rect.fromLTWH(x, y, cellDim, cellDim), Paint()..color = highlightColor..style = PaintingStyle.fill);
+          }
+        }
+      }
+    }
+
+    // PRE-PASS B: Drag-Selection Highlights
+    if (selectionStart != -1 && selectionEnd != -1) {
+      int minSel = min(selectionStart, selectionEnd);
+      int maxSel = max(selectionStart, selectionEnd);
+      
+      for (int row = 0; row < 10; row++) {
+        double y = row * (cellDim + rowGap);
+        for (int col = 0; col < 20; col++) {
+          double x = col * cellDim;
+          int absoluteIndex = (pageIndex * 200) + (row * 20) + col;
+          
+          if (absoluteIndex >= minSel && absoluteIndex < maxSel) {
+            canvas.drawRect(
+              Rect.fromLTWH(x, y, cellDim, cellDim), 
+              Paint()..color = Colors.blueAccent.withOpacity(0.2)..style = PaintingStyle.fill
+            );
           }
         }
       }
@@ -148,34 +175,28 @@ class WongojiPainter extends CustomPainter {
           TextSpan span = TextSpan(style: getTextStyle(), text: char);
           TextPainter tp = TextPainter(text: span, textAlign: TextAlign.center, textDirection: TextDirection.ltr)..layout();
           
-          // 👉 NEW: Relative mathematical alignment for punctuation
           double padding = 4.0 * scale; 
           double offsetX;
           double offsetY;
 
           if (char == '.' || char == ',') {
-            // Bottom Left
             offsetX = padding;
             offsetY = cellDim - tp.height - padding;
           } else if (['“', '‘', '(', '<', '《', '「', '『'].contains(char)) {
-            // Top Right
             offsetX = cellDim - tp.width - padding;
             offsetY = padding;
           } else if (['”', '’', ')', '>', '》', '」', '』'].contains(char)) {
-            // Top Left
             offsetX = padding;
             offsetY = padding;
           } else {
-            // Center
             offsetX = (cellDim - tp.width) / 2;
             offsetY = (cellDim - tp.height) / 2;
           }
 
-          // Paint using the base cell coordinates + the relative offset
           tp.paint(canvas, Offset(x + offsetX, y + offsetY));
         }
 
-        // Focus Dot
+        // 👉 RESTORED: Your original wandering focus dot!
         if (isCurrentPage && cellIndex == activeCellIndex && isDotVisible) {
           final dotPaint = Paint()..color = dotColor..style = PaintingStyle.fill;
           canvas.drawCircle(Offset(x + (cellDim * dotX), y + (cellDim * dotY)), 1.79 * scale, dotPaint);
