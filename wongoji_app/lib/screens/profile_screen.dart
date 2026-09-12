@@ -4,6 +4,34 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../utils/achievement_manager.dart';
 
+// 👉 We make this map global so your Drawer can look up the image later!
+const Map<String, List<Map<String, String>>> wongojiAvatars = {
+  '한국의 작가': [
+    {'id': 'kr_yundongju', 'name': '윤동주', 'img': 'YDJ.PNG'},
+    {'id': 'kr_parkkyungni', 'name': '박경리', 'img': 'PGR.PNG'},
+    {'id': 'kr_kimyujeong', 'name': '김유정', 'img': 'KYJ.PNG'},
+    {'id': 'kr_baekseok', 'name': '백석', 'img': 'BS.PNG'},
+    {'id': 'kr_leesang', 'name': '이상', 'img': 'YS.PNG'},
+    {'id': 'kr_hangang', 'name': '한강', 'img': 'HG.PNG'},
+    {'id': 'kr_kimsowol', 'name': '김소월', 'img': 'KSW.PNG'},
+    {'id': 'kr_parkwanseo', 'name': '박완서', 'img': 'PWS.PNG'},
+    {'id': 'kr_leehyoseok', 'name': '이효석', 'img': 'LHS.PNG'},
+  ],
+  '서양의 작가': [
+    {'id': 'en_georgeorwell', 'name': '조지 오웰', 'img': 'JO.PNG'},
+    {'id': 'en_hemingway', 'name': '헤밍웨이', 'img': 'EH.PNG'},
+    {'id': 'en_kafka', 'name': '카프카', 'img': 'KA.PNG'},
+    {'id': 'en_jkrowling', 'name': 'J.K. 롤링', 'img': 'JK.PNG'},
+    {'id': 'en_jacklondon', 'name': '잭 런던', 'img': 'JL.PNG'},
+    {'id': 'en_austen', 'name': '제인 오스틴', 'img': 'JA.PNG'},
+  ],
+  '고전명작 작가': [
+    {'id': 'cl_tolstoy', 'name': '톨스토이', 'img': 'TS.PNG'},
+    {'id': 'cl_shakespeare', 'name': '셰익스피어', 'img': 'SP.PNG'},
+    {'id': 'cl_dante', 'name': '단테', 'img': 'DT.PNG'},
+  ],
+};
+
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({Key? key}) : super(key: key);
 
@@ -16,31 +44,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
   String? _selectedAvatarId;
   List<String> _unlockedBadges = [];
   bool _isLoading = false;
-
-  final Map<String, List<Map<String, String>>> _avatarLibrary = {
-    '한국의 작가': [
-      {'id': 'kr_kimwonil', 'name': '김원일'},
-      {'id': 'kr_leecheongjun', 'name': '이청준'},
-      {'id': 'kr_yundongju', 'name': '윤동주'},
-      {'id': 'kr_parkkyungni', 'name': '박경리'},
-      {'id': 'kr_kimyujeong', 'name': '김유정'},
-      {'id': 'kr_baekseok', 'name': '백석'},
-      {'id': 'kr_leesang', 'name': '이상'},
-    ],
-    '서양의 작가': [
-      {'id': 'en_georgeorwell', 'name': '조지 오웰'},
-      {'id': 'en_jacklondon', 'name': '잭 런던'},
-      {'id': 'en_hemingway', 'name': '헤밍웨이'},
-      {'id': 'en_kafka', 'name': '카프카'},
-      {'id': 'en_woolf', 'name': '버지니아 울프'},
-      {'id': 'en_austen', 'name': '제인 오스틴'},
-    ],
-    '고전명작 작가': [
-      {'id': 'cl_tolstoy', 'name': '톨스토이'},
-      {'id': 'cl_shakespeare', 'name': '셰익스피어'},
-      {'id': 'cl_dante', 'name': '단테'},
-    ],
-  };
 
   @override
   void initState() {
@@ -64,9 +67,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   Future<void> _saveProfile() async {
-    final user = FirebaseAuth.instance.currentUser;
-    if (user == null) return;
-    
     if (_nicknameController.text.trim().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('필명을 입력해주세요.')));
       return;
@@ -78,13 +78,27 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
     setState(() => _isLoading = true);
 
-    await FirebaseFirestore.instance.collection('users').doc(user.uid).set({
-      'nickname': _nicknameController.text.trim(),
-      'avatarId': _selectedAvatarId,
-      'lastUpdated': FieldValue.serverTimestamp(),
-    }, SetOptions(merge: true)); 
+    final user = FirebaseAuth.instance.currentUser;
+    
+    // If the user is logged in, save to Firebase
+    if (user != null) {
+      await FirebaseFirestore.instance.collection('users').doc(user.uid).set({
+        'nickname': _nicknameController.text.trim(),
+        'avatarId': _selectedAvatarId,
+        'lastUpdated': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true)); 
+    } else {
+      // 👉 FIX: If it is a Guest User, simulate a tiny loading pause so it looks natural
+      await Future.delayed(const Duration(milliseconds: 300));
+    }
 
-    if (mounted) Navigator.pop(context);
+    if (mounted) {
+      // 👉 FIX: We must return the newly selected data back to the Main Screen!
+      Navigator.pop(context, {
+        'nickname': _nicknameController.text.trim(),
+        'avatarId': _selectedAvatarId,
+      });
+    }
   }
 
   Widget _buildAvatarCarousel(String categoryTitle, List<Map<String, String>> authors, bool isDark) {
@@ -124,10 +138,20 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           ),
                           boxShadow: isSelected ? [BoxShadow(color: Colors.redAccent.withOpacity(isDark ? 0.4 : 0.2), blurRadius: 8, spreadRadius: 2)] : null,
                         ),
-                        child: Center(
-                          child: Text(
-                            author['name']!.substring(0, 1),
-                            style: GoogleFonts.nanumMyeongjo(fontSize: 24, color: isSelected ? Colors.redAccent : (isDark ? Colors.white54 : Colors.grey.shade500), fontWeight: FontWeight.bold),
+                        child: ClipOval(
+                          child: Image.asset(
+                            'assets/images/${author['img']}',
+                            width: 80,
+                            height: 80,
+                            fit: BoxFit.cover,
+                            errorBuilder: (context, error, stackTrace) {
+                              return Center(
+                                child: Text(
+                                  author['name']!.substring(0, 1),
+                                  style: GoogleFonts.nanumMyeongjo(fontSize: 24, color: isSelected ? Colors.redAccent : (isDark ? Colors.white54 : Colors.grey.shade500), fontWeight: FontWeight.bold),
+                                ),
+                              );
+                            },
                           ),
                         ),
                       ),
@@ -206,7 +230,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // 👉 NEW: Direct Universal Theme Wiring
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return Scaffold(
@@ -257,7 +280,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
               ),
             ),
             const SizedBox(height: 40),
-            ..._avatarLibrary.entries.map((entry) => _buildAvatarCarousel(entry.key, entry.value, isDark)).toList(),
+            ...wongojiAvatars.entries.map((entry) => _buildAvatarCarousel(entry.key, entry.value, isDark)).toList(),
             const SizedBox(height: 20),
             _buildAchievements(isDark),
             const SizedBox(height: 60),

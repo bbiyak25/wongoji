@@ -6,9 +6,9 @@ import '../models/manuscript.dart';
 import '../widgets/document_card.dart';
 import 'editor_screen_paper.dart';
 import 'trash_screen.dart';
-import 'profile_screen.dart';
+import 'profile_screen.dart'; // 👉 Accesses the wongojiAvatars map!
 import '../utils/achievement_manager.dart';
-import '../main.dart'; // To access globalThemeMode
+import '../main.dart'; 
 
 
 class NotebookHomeScreen extends StatefulWidget {
@@ -20,11 +20,28 @@ class NotebookHomeScreen extends StatefulWidget {
 
 class _NotebookHomeScreenState extends State<NotebookHomeScreen> {
   final User? currentUser = FirebaseAuth.instance.currentUser;
+  
+  // 👉 NEW: Local state to instantly update the Drawer
+  String? _localNickname;
+  String? _localAvatarId;
 
   @override
   void initState() {
     super.initState();
     _cleanExpiredTrash();
+    _loadUserData();
+  }
+
+  // 👉 NEW: Fetches saved profile data when the app loads
+  Future<void> _loadUserData() async {
+    if (currentUser == null) return;
+    final doc = await FirebaseFirestore.instance.collection('users').doc(currentUser!.uid).get();
+    if (doc.exists && mounted) {
+      setState(() {
+        _localNickname = doc.data()?['nickname'];
+        _localAvatarId = doc.data()?['avatarId'];
+      });
+    }
   }
 
   Future<void> _cleanExpiredTrash() async {
@@ -80,9 +97,7 @@ class _NotebookHomeScreenState extends State<NotebookHomeScreen> {
 
   void _openEditor(List<Manuscript> currentDocs, [Manuscript? doc]) async {
     final targetDoc = doc ?? Manuscript(id: DateTime.now().millisecondsSinceEpoch.toString(), lastModified: DateTime.now());
-    // Change this line:
     final result = await Navigator.push(context, MaterialPageRoute(builder: (context) => WongojiEditorPaper(initialDocument: targetDoc)));
-    // final result = await Navigator.push(context, MaterialPageRoute(builder: (context) => WongojiEditor(initialDocument: targetDoc)));
 
     if (result != null && result is Manuscript) {
       if (result.title.trim().isEmpty) {
@@ -194,9 +209,40 @@ class _NotebookHomeScreenState extends State<NotebookHomeScreen> {
   Widget _buildSidebarDrawer(BuildContext context, List<Manuscript> allDocs) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     
-    String displayName = currentUser?.isAnonymous == true ? "비회원 작가님" : (currentUser?.displayName ?? "Wongoji 작가님");
+    // 👉 UI Update: Overrides the default names with your local custom name
+    String displayName = (_localNickname != null && _localNickname!.isNotEmpty) 
+        ? _localNickname! 
+        : (currentUser?.isAnonymous == true ? "비회원 작가님" : (currentUser?.displayName ?? "Wongoji 작가님"));
     String email = currentUser?.isAnonymous == true ? "임시 게스트 계정" : (currentUser?.email ?? "연동된 이메일 없음");
     String avatarInitial = displayName.isNotEmpty ? displayName.substring(0, 1) : "W";
+
+    // 👉 UI Update: Searches for the exact image file mapped to your chosen Avatar ID
+    String? avatarImg;
+    if (_localAvatarId != null) {
+      for (var category in wongojiAvatars.values) {
+        for (var author in category) {
+          if (author['id'] == _localAvatarId) {
+            avatarImg = author['img'];
+            break;
+          }
+        }
+        if (avatarImg != null) break;
+      }
+    }
+
+    Widget avatarContent = Text(avatarInitial, style: GoogleFonts.nanumMyeongjo(fontSize: 32, color: Colors.redAccent, fontWeight: FontWeight.bold));
+    
+    if (avatarImg != null) {
+      avatarContent = ClipOval(
+        child: Image.asset(
+          'assets/images/$avatarImg',
+          width: 72,
+          height: 72,
+          fit: BoxFit.cover,
+          errorBuilder: (ctx, err, stack) => Text(avatarInitial, style: GoogleFonts.nanumMyeongjo(fontSize: 32, color: Colors.redAccent, fontWeight: FontWeight.bold)),
+        ),
+      );
+    }
 
     return Drawer(
       backgroundColor: Theme.of(context).cardColor,
@@ -208,15 +254,23 @@ class _NotebookHomeScreenState extends State<NotebookHomeScreen> {
             accountEmail: Text(email, style: GoogleFonts.nanumGothic(color: Colors.grey.shade500, fontSize: 12)),
             currentAccountPicture: CircleAvatar(
               backgroundColor: isDark ? const Color(0xFF2C2C2C) : const Color(0xFFFDF6E3), 
-              child: Text(avatarInitial, style: GoogleFonts.nanumMyeongjo(fontSize: 32, color: Colors.redAccent, fontWeight: FontWeight.bold)),
+              child: avatarContent,
             ),
           ),
           ListTile(
             leading: Icon(Icons.person_outline, color: isDark ? Colors.white70 : Colors.grey.shade700),
             title: Text("프로필 편집", style: GoogleFonts.nanumMyeongjo(fontSize: 16, fontWeight: FontWeight.bold, color: isDark ? Colors.white : Colors.black87)),
-            onTap: () {
-              Navigator.pop(context);
-              Navigator.push(context, MaterialPageRoute(builder: (_) => const ProfileScreen()));
+            onTap: () async {
+              Navigator.pop(context); // Closes the drawer
+              
+              // 👉 NEW: Awaits the result from the Profile Screen and instantly applies it!
+              final result = await Navigator.push(context, MaterialPageRoute(builder: (_) => const ProfileScreen()));
+              if (result != null && result is Map) {
+                setState(() {
+                  _localNickname = result['nickname'];
+                  _localAvatarId = result['avatarId'];
+                });
+              }
             },
           ),
           ListTile(
@@ -228,8 +282,6 @@ class _NotebookHomeScreenState extends State<NotebookHomeScreen> {
             },
           ),
           const Divider(),
-          
-          // NEW: The 3-Step Theme Cycler
           ValueListenableBuilder<int>(
             valueListenable: globalThemeMode,
             builder: (context, themeIndex, _) {
@@ -254,7 +306,6 @@ class _NotebookHomeScreenState extends State<NotebookHomeScreen> {
             },
           ),
           const Spacer(),
-          
           ListTile(
             leading: const Icon(Icons.logout, color: Colors.redAccent),
             title: Text("로그아웃", style: GoogleFonts.nanumMyeongjo(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.redAccent)),
